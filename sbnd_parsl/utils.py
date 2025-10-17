@@ -72,6 +72,7 @@ def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: boo
         elif 'aurora' in hostname or hostname.startswith('x4'):
             # use pip with frameworks
             cmds += [
+                'export TMPDIR=/tmp/',
                 'module load frameworks',
                 f'source ~/.venv/{venv_name}/bin/activate',
                 'export ZEX_NUMBER_OF_CCS=0:4,1:4,2:4,3:4,4:4,5:4,6:4,7:4,8:4,9:4,10:4,11:4'

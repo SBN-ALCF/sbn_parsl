@@ -38,7 +38,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from enum import Enum, Flag, auto
-from typing import List, Dict, Optional, Callable
+from typing import List, Tuple, Dict, Optional, Callable
 
 
 class NoInputFileException(Exception):
@@ -164,10 +164,23 @@ class Stage:
         self._parents_iterators = deque()
         self._combine = False
 
-        # only relevant for _SUPER stage, hold a reference to the last output 
-        # (often Parsl datafuture) of the workflow so that it may be used as
-        # a dummy input to the next workflow
+        # only relevant for _SUPER stage, hold a reference to the last output
+        # (often Parsl datafuture) of the workflow so that it may be used as a
+        # dummy input to the next workflow. This forces parsl to complete an
+        # entire workflow before starting stages from the next. It is slightly
+        # less efficient, but results in faster time to complete full workflows
         self._workflow_last_file = None
+
+        # initialized automatically when added to workflow; user does not need
+        # to set these
+        # parent stages: Filled until the workflow starts, then is deleted
+        # workflow_id: Which workflow created this stage
+        # stage_id: Stage counter within the workflow
+        # final: Is this the final stage of the workflow?
+        self._temp_parent_stages = {}
+        self.workflow_id: int = None
+        self.stage_id: Tuple[int] = None
+        self.final: bool = False
 
     @property
     def stage_type(self) -> StageType:
@@ -235,6 +248,10 @@ class Stage:
     def combine(self, val: bool) -> None:
         self._combine = val
 
+    @property
+    def stage_id_str(self) -> str:
+        return f'{self.workflow_id}_' + '_'.join(str(c) for c in self.stage_id)
+
     def run(self, rerun: bool=False) -> None:
         """Produces the output file for this stage."""
         # if calling run method directly instead of asking for output files,
@@ -258,7 +275,7 @@ class Stage:
             pass
         else:
             if self._input_files is None:
-                raise NoInputFileException(f'Tried to run stage of type {self._stage_type} which requires at least one input file, but it was not set.')
+                raise NoInputFileException(f'Tried to run stage of type {self._stage_type.name} which requires at least one input file, but it was not set.')
 
         # bind the func to this object with MethodType so self resolves as if
         # it were a member function
@@ -267,6 +284,22 @@ class Stage:
         self._output_files = func(self.fcl, self._input_files, self.run_dir)
 
     def add_parents(self, stages: List, fcls: Optional[Dict]=None) -> None:
+        """workflow calls finalize routine to actually add the parents, user
+        code caches them prior to that call."""
+        self._temp_parent_stages[stages] = fcls
+
+    def _finalize(self):
+        """Called by workflow for SUPER stage to allows workflow to control
+        when the stages are actually added (e.g., after setting up IDs)"""
+        for k, v in self._temp_parent_stages.items():
+            self._add_parents(k, v)
+            if not isinstance(k, list):
+                k = [k]
+            for s in k:
+                s._finalize()
+        self._temp_parent_stages = {}
+
+    def _add_parents(self, stages: List, fcls: Optional[Dict]=None) -> None:
         """Add a list of known prior stages to this one."""
         if not isinstance(stages, list):
             stages = [stages]
@@ -274,6 +307,14 @@ class Stage:
         for s in stages:
             if s.stage_type != self.parent_type:
                 raise StageAncestorException(f"Tried to add stage of type {s.stage_type} as a parent to a stage with type {self.stage_type}")
+            if s.workflow_id is None:
+                s.workflow_id = self.workflow_id
+            if s.stage_id is None:
+                # when adding to the SUPER stage, stage ID is 0, 1, 2, ... etc.
+                # then adding parents to those stages would give IDs of 00, 01, 02, ..., 10, 11, 11, ..., etc.
+                s.stage_id = self.stage_id + (len(self._parents_iterators),)
+            if StageProperty._SUPER in self._stage_type.properties:
+                s.final = True
             if s.stage_order is None:
                 s.stage_order = self.stage_order
 
@@ -355,11 +396,13 @@ def run_stage(stage: Stage, fcls: Optional[Dict]=None):
         # no inputs and no parents -> create a parent stage
         parent_stage = Stage(stage.parent_type)
         stage.add_parents(parent_stage, fcls)
+        stage._finalize()
 
     # run parent stages first
     while stage.has_parents():
         try:
             next(stage.get_next_task())
+            print('here', stage.combine)
             if not stage.combine:
                 yield
         except StopIteration:
@@ -389,6 +432,11 @@ class Workflow:
         return [output_file]
 
     def __init__(self, stage_order: List[StageType], default_fcls: Optional[Dict]=None, run_dir: pathlib.Path=pathlib.Path(), runfunc: Optional[Callable]=None):
+
+        # ID is set by the workflow executor
+        self._id = None
+        self._n_final_stages = 0
+
         self._stage_order = stage_order
 
         self.default_fcls = {}
@@ -404,13 +452,43 @@ class Workflow:
         if self._default_runfunc is None:
             self._default_runfunc = Workflow.default_runfunc
         self._stage = Stage(_SUPER)
+
         self._stage.run_dir = self._run_dir
         self._stage.runfunc = self._default_runfunc
         self._stage.stage_order = self._stage_order + [_SUPER]
+        self._final_stages = []
 
     def add_final_stage(self, stage: Stage):
-        """Add the final stage to the workflow as a generator expression."""
-        self._stage.add_parents(stage, self.default_fcls)
+        """Add the final stage to the workflow."""
+        self._final_stages.append(stage)
+
+    def _finalize(self):
+        """Let the workflow executor control when to call add_parents."""
+        # keep track of where this stage came from
+        # super stage always gets Stage ID as the empty string
+        self._stage.workflow_id = self._id
+
+        # this saves us one iteration in get_next_task. by marking combined,
+        # when we submit the super stage, it will submit its parent on the
+        # first call
+        self._stage.combine = True
+
+        self._stage.stage_id = tuple()
+
+        for s in self._final_stages:
+            self._stage.add_parents(s, self.default_fcls)
+
+            # counter is used by the workflow executor to determine if all the
+            # final stages of this workflow have completed
+            self._n_final_stages += 1
+        self._stage._finalize()
+
+        # no need to keep this around
+        del self._final_stages
+
+    @property
+    def n_final_stages(self):
+        return self._n_final_stages
 
     '''
     def _resolve(self, stage=None, iteration):
@@ -473,29 +551,39 @@ class WorkflowExecutor:
 
         self.futures = []
 
-        # workflow
         self.workflow_opts = settings['workflow']
-        self.workflow = None
+        self._workflow_counters = {}
 
         # optionally track the number of submitted stages. Runfunc should modify these
         self._stage_counter = 0
         self._skip_counter = 0
+        self._success_counter = 0
+        self._fail_counter = 0
 
         # file tracking with sqlite as files are created, write them to the
         # database this allows us to check the database instead of the
         # filesystem on workflow restarts. While Parsl does this generically
         # for tasks, using the Parsl task cache requires actually submitting
         # the task, whereas this check can avoid submitting the task entirely
-        self._disk_db = sqlite3.connect(str(self.output_dir / 'file_cache.db'))
+        db_file = self.output_dir / 'runinfo' / 'cmd' / 'file_cache.db'
+        db_file.parent.mkdir(exist_ok=True)
+        self._disk_db = sqlite3.connect(str(db_file))
         self._mem_db = sqlite3.connect(":memory:")
         self._disk_db.backup(self._mem_db)
         self._cursor = self._mem_db.cursor()
-        # Create the table if needed
+
         self._cursor.execute("""
-            CREATE TABLE IF NOT EXISTS files (
-                filename TEXT PRIMARY KEY,
-                status TEXT,
-                created_at TIMESTAMP
+            CREATE TABLE IF NOT EXISTS stages (
+                stage_id TEXT PRIMARY KEY
+            )
+        """)
+
+        # this tracks fully completed workflows where all tasks were
+        # successful. If the workflow's ID is in this database, we can skip
+        # running it completely
+        self._cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workflows (
+                id UNSIGNED INT PRIMARY KEY
             )
         """)
 
@@ -528,7 +616,7 @@ class WorkflowExecutor:
         # we'll cycle over indices until all tasks are submitted, taking one
         # task from each subrun at a time. This ensures we get the parsl
         # futures in the "correct" order: Futures without dependencies first,
-        # then dependencies later
+        # then futures with dependencies later
 
         wfs = [None] * nsubruns
         skip_idx = set()
@@ -560,7 +648,18 @@ class WorkflowExecutor:
                     if not file_slice:
                         skip_idx.add(idx)
                         continue
-                wfs[idx] = self.setup_single_workflow(idx, file_slice, last_files[idx % nworkers])
+
+                # critically, do this after we slice for files so that we
+                # don't break the file generator order for the next
+                # workflow
+                if self.workflow_in_db(idx):
+                    print(f'Skip workflow at index={idx}, found in db')
+                    skip_idx.add(idx)
+                    continue
+
+                # wrapper calls the user's setup_single_workflow and sets its ID
+                wfs[idx] = self.setup_single_workflow_wrapper(idx, file_slice, last_files[idx % nworkers])
+                self._workflow_counters[wfs[idx]._id] = {'done': 0, 'nfinal': wfs[idx].n_final_stages}
 
             # rate-limit the number of concurrent futures to avoid using too
             # much memory on login nodes
@@ -576,7 +675,7 @@ class WorkflowExecutor:
             except StopIteration:
                 skip_idx.add(idx)
                 done_workflows = len(skip_idx)
-                # last_files[idx % nworkers] = wfs[idx]._get_last_file()
+                last_files[idx % nworkers] = wfs[idx]._get_last_file()
                 if done_workflows % nworkers == 0:
                     idx_cycle = itertools.cycle(range(done_workflows, min(nsubruns, done_workflows + nworkers)))
 
@@ -593,49 +692,96 @@ class WorkflowExecutor:
         self._disk_db.close()
         print('Done')
         print(f'(submitted/skipped) = ({self._stage_counter}/{self._skip_counter})')
+        print(f'(success/fail) = ({self._success_counter}/{self._fail_counter})')
 
     def get_task_results(self):
         """Loop over all tasks & clear finished ones."""
         remaining_futures = []
+
+        # these counters print the # of successes/failures since the last
+        # update, separate from the total workflow count
         npass = 0
         nfail = 0
         for f in self.futures:
             if not f.done():
                 remaining_futures.append(f)
                 continue
+
+            success = False
             try:
                 f.result()
-                self.mark_file_in_db(f.filepath)
+                success = True
                 npass += 1
+                self._success_counter += 1
             except Exception as e:
                 print(f'[FAILED] task {f.tid} {f.filepath} ({e})')
                 nfail += 1
+                self._fail_counter += 1
+
+            if success:
+                self.mark_stage_in_db(f.stage_id)
+                # try/except for backwards compatibility
+                try:
+                    if f.final:
+                        self._workflow_counters[f.workflow_id]['done'] += 1
+                        if self._workflow_counters[f.workflow_id]['done'] == \
+                                self._workflow_counters[f.workflow_id]['nfinal']:
+                            # mark in DB that this workflow is fully finished
+                            print(f'Workflow {f.workflow_id} completed successfully!')
+                            self.mark_workflow_in_db(f.workflow_id)
+                except AttributeError as e:
+                    print(f'Future is missing workflow_id attribute required for caching. Please set in the runfunc!')
+
         print(f'Futures [SUCCESS]/[FAILED]: {npass}/{nfail}')
 
-        # sync the in-memory database with the disk one
-        self._mem_db.backup(self._disk_db)
-        self.futures = remaining_futures
+        # sync the in-memory database with the disk one if we had any changes
+        if npass > 0:
+            self._mem_db.backup(self._disk_db)
+            self.futures = remaining_futures
 
-    def setup_single_workflow(self, iteration: int, inputs=None):
+    def setup_single_workflow_wrapper(self, iteration: int, inputs=None, last_file=None):
+        """Wrap setting the workflow ID so that the user doesn't have to do it."""
+        wf = self.setup_single_workflow(iteration, inputs, last_file)
+        wf._id = iteration
+        wf._finalize()
+        return wf
+
+    def setup_single_workflow(self, iteration: int, inputs=None, last_file=None):
         # user should implement this
         pass
 
-    def file_in_db(self, filename: pathlib.Path) -> bool:
+    def stage_in_db(self, stage_id: str) -> bool:
         """Check if the file is in the file database."""
         result = self._cursor.execute(
-            "SELECT 1 FROM files WHERE filename=?",
-            (str(filename.resolve()),)
+            "SELECT 1 FROM stages WHERE stage_id=(?)",
+            (stage_id,)
         ).fetchone()
         return result is not None
 
-    def mark_file_in_db(self, filename, status="created"):
+    def workflow_in_db(self, id_) -> bool:
+        """Check if the file is in the file database."""
+        result = self._cursor.execute(
+            "SELECT 1 FROM workflows WHERE id=(?)",
+            (id_,)
+        ).fetchone()
+        return result is not None
+
+    def mark_stage_in_db(self, stage_id):
         """Add or update the file in the database."""
-        str_filename = filename
-        if isinstance(filename, pathlib.Path):
-            str_filename = str(filename.resolve())
+        # str_filename = filename
+        # if isinstance(filename, pathlib.Path):
+        #     str_filename = str(filename.resolve())
         self._cursor.execute(
-            "INSERT OR REPLACE INTO files (filename, status, created_at) VALUES (?, ?, ?)",
-            (str_filename, status, datetime.now().isoformat())
+            "INSERT OR REPLACE INTO stages (stage_id) VALUES (?)",
+            (stage_id,)
+        )
+        self._mem_db.commit()
+
+    def mark_workflow_in_db(self, id_):
+        """Add or update the file in the database."""
+        self._cursor.execute(
+            "INSERT OR REPLACE INTO workflows (id) VALUES (?)",
+            (id_,)
         )
         self._mem_db.commit()
 
