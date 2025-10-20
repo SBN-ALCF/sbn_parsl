@@ -71,18 +71,22 @@ def runfunc(self, fcl, inputs, run_dir, executor, last_file=None, nevts=-1, nski
 
     if self.stage_type != DefaultStageTypes.CAF:
         # from string or posixpath input
-        output_filename = '-'.join([
-            str(self.stage_type.name), f'{nskip:03d}', os.path.basename(first_file_name), 
-        ])
+        if self.stage_type == DefaultStageTypes.DECODE:
+            # decode stage: separate based on nskip parameter
+            parts = [
+                str(self.stage_type.name), f'{nskip:03d}', os.path.basename(first_file_name), 
+            ]
+        else:
+            # other stages will build on nskip parameter; no need to add to file name
+            parts = [
+                str(self.stage_type.name), os.path.basename(first_file_name), 
+            ]
+        output_filename = '-'.join(parts)
     else:
         output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.flat.caf.root'
 
-    # run_number_str = SBND_RAWDATA_REGEXP.match(first_file_name).groups()[0]
-    # output_dir = executor.output_dir / self.stage_type.name / run_number_str
-    # output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = executor.output_dir / self.stage_type.name / f'{self.workflow_id // 1000:06d}' / f'{self.workflow_id // 100:06d}'
 
-    output_dir = executor.output_dir / self.stage_type.name / f'{executor.run_counter // 100:06d}'
-    executor.run_counter += 1
     if self.combine:
         # if we are combining, save this stage's result only on node-local disk
         # output_dir.name gets the instance number for this task
@@ -100,8 +104,12 @@ def runfunc(self, fcl, inputs, run_dir, executor, last_file=None, nevts=-1, nski
     if self.stage_type != DefaultStageTypes.CAF:
         output_file_arg_str = f'--output {str(output_file)}'
 
+    if executor.stage_in_db(self.stage_id_str):
+        executor._skip_counter += 1
+        return [[output_file], [], '']
+
     if output_file.is_file():
-        print(f'Skipping {output_file}, already exists')
+        executor._skip_counter += 1
         return [[output_file], [], '']
 
     # output_filepath = output_dir / output_filename
@@ -119,6 +127,14 @@ def runfunc(self, fcl, inputs, run_dir, executor, last_file=None, nevts=-1, nski
 
     cmd = f'mkdir -p {run_dir} && cd {run_dir} && lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts} --nskip={nskip}'
 
+    # sort the analyzer module files into directories for easier transfer to FNAL later
+    if self.stage_type == DefaultStageTypes.STAGE0:
+        purity_dir = executor.output_dir / 'purity' / f'{self.workflow_id // 1000:06d}' / f'{self.workflow_id // 100:06d}'
+        purity_dir.mkdir(parents=True, exist_ok=True)
+        purity_filename = purity_dir / f"hist_{output_filename}"
+        cmd += f' -T {str(purity_dir / purity_filename)}'
+
+
     if parent_cmd != '':
         cmd = ' && '.join([parent_cmd, cmd])
 
@@ -128,24 +144,32 @@ def runfunc(self, fcl, inputs, run_dir, executor, last_file=None, nevts=-1, nski
         # we need to forward this task's dependencies too
         return [[output_file], input_files, cmd]
 
-    print(cmd)
-
     mg_cmd = ''
+
+    # fcl overrides for supera need to be processed in pre_job_hook
+    if self.stage_type == DefaultStageTypes.STAGE1:
+        calib_dir = executor.output_dir / 'calib_ntuple' / f'{self.workflow_id // 1000:06d}' / f'{self.workflow_id // 100:06d}'
+        larcv_dir = executor.output_dir / 'larcv' / f'{self.workflow_id // 1000:06d}' / f'{self.workflow_id // 100:06d}'
+        calib_dir.mkdir(parents=True, exist_ok=True)
+        larcv_dir.mkdir(parents=True, exist_ok=True)
+        calib_filename = calib_dir / f"hist_{output_filename}"
+        larcv_filename = larcv_dir / f"larcv_{output_filename}"
+        cmd += f' -T {str(calib_dir / calib_filename)}'
+        mg_cmd = '\n'.join([mg_cmd,
+            f'''echo "physics.analyzers.superaMC.out_filename: \\"{str(larcv_filename)}\\"" >> {os.path.basename(fcl)}''',
+            f'''echo "physics.analyzers.superaMC.unique_filename: false" >> {os.path.basename(fcl)}''',
+        ])
+
     if self.stage_type == OVERLAY:
         mg_cmd = '\n'.join([mg_cmd,
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/grand/projects/neutrinoGPU/simulation_inputs/FluxFilesIcarus/\\"" >> {os.path.basename(fcl)}''',
-            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/grand/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {os.path.basename(fcl)}''',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFilesIcarus/\\"" >> {os.path.basename(fcl)}''',
+            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {os.path.basename(fcl)}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {os.path.basename(fcl)}''',
-            f'''echo "services.NuRandomService.initSeedPolicy.policy: \\"perEvent\\"" >> {os.path.basename(fcl)}''',
         ])
         mg_cmd += '\n'
 
-    mg_cmd += executor.meta.run_cmd(
-        output_filename + '.json', os.path.basename(fcl), check_exists=False)
-
-    # future_func = functools.partial(fcl_future)
-    # future_func.__name__ = self.stage_type.name
-    # app = bash_app(future_func, cache=True)
+    mg_cmd = '\n'.join([mg_cmd, executor.meta.run_cmd(
+        output_filename + '.json', os.path.basename(fcl), check_exists=False)])
 
     future = fcl_future(
         workdir = str(run_dir),
@@ -159,7 +183,13 @@ def runfunc(self, fcl, inputs, run_dir, executor, last_file=None, nevts=-1, nski
         pre_job_hook = mg_cmd
     )
 
-    # this modifies the list passed in by WorkflowExecutor
+    # add some custom member functions to track the parent workflow when these
+    # stages complete
+    future.outputs[0].workflow_id = self.workflow_id
+    future.outputs[0].stage_id = self.stage_id_str
+    future.outputs[0].final = self.final
+
+    # this modifies the list passed in by WorkflowExecutor so it can track progress
     executor.futures.append(future.outputs[0])
 
     return [future.outputs, [], '']
@@ -193,9 +223,6 @@ class DecoderExecutor(WorkflowExecutor):
 
         self.rawdata_path = pathlib.Path(settings['workflow']['rawdata_path'])
 
-        # for organizing outputs
-        self.run_counter = 0
-
     def file_generator(self):
         path_generators = [self.rawdata_path.rglob('*.root')]
         generator = itertools.chain(*path_generators)
@@ -213,7 +240,7 @@ class DecoderExecutor(WorkflowExecutor):
         s.runfunc = runfunc_
         workflow.add_final_stage(s)
 
-        decode_runfuncs = [functools.partial(runfunc, executor=self, nevts=5, nskip=(i * 5)) for i in range(10)]
+        decode_runfuncs = [functools.partial(runfunc, executor=self, nevts=1, nskip=(i * 5)) for i in range(10)]
 
         for i, file in enumerate(rawdata_files):
             for j in range(10):

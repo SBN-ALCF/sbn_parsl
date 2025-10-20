@@ -402,7 +402,6 @@ def run_stage(stage: Stage, fcls: Optional[Dict]=None):
     while stage.has_parents():
         try:
             next(stage.get_next_task())
-            print('here', stage.combine)
             if not stage.combine:
                 yield
         except StopIteration:
@@ -540,6 +539,7 @@ class WorkflowExecutor:
         self.output_dir = pathlib.Path(self.run_opts['output'])
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.max_futures = self.run_opts['max_futures']
+        self.name_salt = str(settings['run']['seed']) + str(self.output_dir)
 
         self.fcl_dir = None
         self.fcls = {}

@@ -1,3 +1,7 @@
+"""
+Components module which contains runfunc & helper functions for common workflows
+New runfuncs can be build by passing different helpers ("components") to the runfunc
+"""
 import sys, os
 import pathlib
 import functools
@@ -29,7 +33,74 @@ def fcl_future(workdir, stdout, stderr, template, cmd, larsoft_opts, inputs=[], 
     )
 
 
-def mc_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label='', last_file=None):
+def output_filepath(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt=''):
+    """Pick an output file name based on a stage and its input."""
+    if stage.stage_type != DefaultStageTypes.CAF:
+        # from string or posixpath input
+        _label = label
+        if label != '':
+            _label = label + '-'
+
+        output_filename = ''.join([
+            str(stage.stage_type.name), '-', _label,
+            hash_name(os.path.basename(fcl) + salt + stage.stage_id_str),
+            ".root"
+        ])
+    else:
+        output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.flat.caf.root'
+
+    return pathlib.PurePosixPath(label, stage.stage_type.name, f'{stage.workflow_id // 1000:06d}', \
+            f'{stage.workflow_id // 100:06d}', output_filename)
+
+
+
+def build_larsoft_cmd(stage: Stage, fcl, inputs: List=None, output_file: pathlib.Path=pathlib.Path('sbn_parsl_out.root'), lar_args={}) -> str:
+    """Build larsoft command with input & output flags"""
+    # caf stage does not get an output argument
+    output_file_arg_str = ''
+    if stage.stage_type != DefaultStageTypes.CAF:
+        output_file_arg_str = f'--output={str(output_file)}'
+
+    input_file_arg_str = ''
+    if inputs:
+        input_file_arg_str = \
+            ' '.join([f'-s {str(file)}' if not isinstance(file, parsl.app.futures.DataFuture) else f'-s {str(file.filepath)}' for file in inputs])
+
+    # stages after gen: don't limit number of events; use all events from all input files
+    nevts = -1
+    if stage.stage_type == DefaultStageTypes.GEN:
+        nevts = lar_args["nevts"]
+    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts}'
+
+
+def transfer_ids(stage: Stage, future):
+    """add some custom member functions to track the parent workflow when these stages complete"""
+    future.workflow_id = stage.workflow_id
+    future.stage_id = stage.stage_id_str
+    future.final = stage.final
+
+
+def build_modify_fcl_cmd(stage: Stage, fcl):
+    """generate bash commands that modify fcl"""
+    fcl_cmd = ''
+    fcl_name = os.path.basename(fcl)
+    if stage.stage_type == DefaultStageTypes.GEN:
+        run_number = 1 + (stage.workflow_id // 100)
+        subrun_number = stage.workflow_id % 100
+        fcl_cmd = '\n'.join([
+            f'echo "source.firstRun: {run_number}" >> {fcl_name}',
+            f'echo "source.firstSubRun: {subrun_number}" >> {fcl_name}',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFiles/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
+            f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {os.path.basename(fcl)}''',
+        ])
+
+    return fcl_cmd
+
+
+def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label='', last_file=None, \
+        output_filename_func=output_filepath, lar_cmd_func=build_larsoft_cmd, fcl_cmd_func=build_modify_fcl_cmd, \
+        future_func=fcl_future):
     """
     Method bound to each Stage object and run during workflow execution. Use
     this runfunc for generating MC events.
@@ -38,210 +109,77 @@ def mc_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label='', l
      - Metadata injection
      - Combined stages: Forward command to the next stage, so both stages run in 1 task
      - wait for last_file (even if no dependency)
+
+    Default components may be overridden:
+     - output_filename_func: Specify output filename based on stage
+     - lar_cmd_func: Specify how lar command is built
+     - fcl_cmd_func: Function that generates bash script to override fcl params
+     - future func: Function that typically submits a parsl future
     """
 
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    if self.stage_type != DefaultStageTypes.GEN:
-        first_file_name = None
-        if not isinstance(inputs[0][0], parsl.app.futures.DataFuture):
-            first_file_name = inputs[0][0].name
-        else:
-            first_file_name = inputs[0][0].filename
-
-    if self.stage_type != DefaultStageTypes.CAF:
-        # from string or posixpath input
-        _label = label
-        if label != '':
-            _label = label + '-'
-
-        output_filename = ''.join([
-            str(self.stage_type.name), '-', _label,
-            hash_name(os.path.basename(fcl) + executor.name_salt + str(executor.lar_run_counter)),
-            ".root"
-        ])
-    else:
-        output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.flat.caf.root'
-
-    output_dir = executor.output_dir / label / self.stage_type.name / f'{executor.lar_run_counter // 1000:06d}' \
-            / f'{executor.lar_run_counter // 100:06d}'
-    output_file = output_dir / output_filename
-    executor.lar_run_counter += 1
-
-    if executor.file_in_db(output_file):
-        return [[output_file], '']
-
-    if output_file.is_file():
-        return [[output_file], '']
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file_arg_str = ''
-    if self.stage_type != DefaultStageTypes.CAF:
-        output_file_arg_str = f'--output {str(output_file)}'
-
-    # create input arguments
-    # input_file_arg_str: Passed to larsoft template: String containing '-s <filename>' directives
-    # input_arg: Passed to Parsl, contains any data futures dependencies required to start the task 
-    input_file_arg_str = ''
-    parent_cmd = ''
-    dummy_input = None
-    if last_file is not None:
-        dummy_input = last_file[0][0]
-    input_arg = [str(fcl), dummy_input]
-
-    if inputs is not None:
-        input_files = list(itertools.chain.from_iterable(inputs[0::2]))
-        parent_cmds = '&&'.join(inputs[1::2])
-        input_file_arg_str = \
-            ' '.join([f'-s {str(file)}' if not isinstance(file, parsl.app.futures.DataFuture) else f'-s {str(file.filepath)}' for file in input_files])
-        input_arg += [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files]
-
-    # stages after gen: don't limit number of events; use all events from all input files
-    nevts = -1
-    if self.stage_type == DefaultStageTypes.GEN:
-        nevts = executor.larsoft_opts["nevts"]
-    cmd = f'mkdir -p {run_dir} && cd {run_dir} && lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts}'
-
-    if parent_cmd != '':
-        cmd = ' && '.join([parent_cmd, cmd])
-
-    if self.combine:
-        # don't submit work, just forward commands to the next task
-        return [[output_file], cmd]
-
-    # metadata & fcl manipulation
-    mg_cmd = ''
-    if self.stage_type == DefaultStageTypes.GEN:
-        executor.unique_run_number += 1
-        run_number = 1 + (executor.unique_run_number // 100)
-        subrun_number = executor.unique_run_number % 100
-        mg_cmd = '\n'.join([mg_cmd,
-            f'echo "source.firstRun: {run_number}" >> {os.path.basename(fcl)}',
-            f'echo "source.firstSubRun: {subrun_number}" >> {os.path.basename(fcl)}',
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFiles/\\"" >> {os.path.basename(fcl)}''',
-            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {os.path.basename(fcl)}''',
-            f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {os.path.basename(fcl)}''',
-        ])
-        mg_cmd += '\n'
-    mg_cmd += meta.run_cmd(
-        output_filename + '.json', os.path.basename(fcl), check_exists=False)
-
-    future = fcl_future(
-        workdir = str(run_dir),
-        stdout = str(run_dir / output_filename.replace(".root", ".out")),
-        stderr = str(run_dir / output_filename.replace(".root", ".err")),
-        template = template,
-        cmd = cmd,
-        larsoft_opts = executor.larsoft_opts,
-        inputs = input_arg,
-        outputs = [File(str(output_file))],
-        pre_job_hook = mg_cmd
-    )
-
-    # this modifies the list passed in by WorkflowExecutor
-    executor.futures.append(future.outputs[0])
-
-    return [future.outputs, '']
-
-
-
-def data_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label='', last_file=None):
-    """
-    Method bound to each Stage object and run during workflow execution. Use
-    this runfunc for processing data events.
-
-    Supported features:
-     - Metadata injection
-     - Combined stages: Forward command to the next stage, so both stages run in 1 task
-     - wait for last_file (even if no dependency)
-    """
-
-    run_dir.mkdir(parents=True, exist_ok=True)
-    if self.stage_type == DefaultStageTypes.DECODE:
-        inputs = [inputs, [], '']
+    # first stage for file workflows will have a string as input
+    # put it in a general form that can be passed to the next stage
+    if not isinstance(inputs, list):
+        first_arg = []
+        if inputs is not None:
+            first_arg = [inputs]
+        inputs = [first_arg, [], '']
 
     input_files = list(itertools.chain.from_iterable(inputs[0::3]))
     depends = list(itertools.chain.from_iterable(inputs[1::3]))
     parent_cmd = '&&'.join(pc for pc in inputs[2::3] if pc != '')
 
-    if self.stage_type == DefaultStageTypes.DECODE:
-        first_file_name = input_files[0]
-    else:
+    first_file_name = ''
+    if self.stage_type != DefaultStageTypes.GEN:
         if not isinstance(inputs[0][0], parsl.app.futures.DataFuture):
             first_file_name = inputs[0][0].name
         else:
             first_file_name = inputs[0][0].filename
 
-    if self.stage_type != DefaultStageTypes.CAF:
-        # from string or posixpath input
-        _label = label
-        if label != '':
-            _label = label + '-'
+    output_file = executor.output_dir / output_filename_func(self, first_file_name, fcl, label, executor.name_salt)
+    print(output_file)
 
-        output_filename = ''.join([
-            str(self.stage_type.name), '-', _label,
-            hash_name(os.path.basename(fcl) + executor.name_salt + str(executor.lar_run_counter)),
-            ".root"
-        ])
-    else:
-        output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.flat.caf.root'
-
-    output_dir = executor.output_dir / label / self.stage_type.name / f'{executor.lar_run_counter // 1000:06d}' \
-            / f'{executor.lar_run_counter // 100:06d}'
-    output_file = output_dir / output_filename
-    executor.lar_run_counter += 1
-
-    if executor.file_in_db(output_file):
+    if executor.stage_in_db(self.stage_id_str):
         executor._skip_counter += 1
-        return [[output_file], [], '']
+        return [[output_file], '']
 
     if output_file.is_file():
         executor._skip_counter += 1
-        return [[output_file], [], '']
+        return [[output_file], '']
 
     executor._stage_counter += 1
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file_arg_str = ''
-    if self.stage_type != DefaultStageTypes.CAF:
-        output_file_arg_str = f'--output=out1:{str(output_file)}'
+    output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # create input arguments
-    # input_file_arg_str: Passed to larsoft template: String containing '-s <filename>' directives
-    # input_arg: Passed to Parsl, contains any data futures dependencies required to start the task 
-    input_file_arg_str = ''
+    cmd = ' && '.join([
+        f'mkdir -p {run_dir} && cd {run_dir}',
+        lar_cmd_func(self, fcl, input_files, output_file, executor.larsoft_opts)
+    ])
+
+    if parent_cmd:
+        cmd = ' && '.join([cmd, parent_cmd])
+
     dummy_input = None
     if last_file is not None:
         dummy_input = last_file[0][0]
     input_arg = [str(fcl), dummy_input]
+    input_arg += [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files] + depends
 
-    if inputs is not None:
-        input_file_arg_str = \
-            ' '.join([f'-s {str(file)}' if not isinstance(file, parsl.app.futures.DataFuture) else f'-s {str(file.filepath)}' for file in input_files])
-        input_arg += [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files]
-
-    nevts = -1
-    if self.stage_type == DefaultStageTypes.DECODE:
-        nevts = executor.larsoft_opts["nevts"]
-    cmd = f'mkdir -p {run_dir} && cd {run_dir} && lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts}'
-
-    if parent_cmd != '':
-        cmd = ' && '.join([parent_cmd, cmd])
-
-    print(cmd)
     if self.combine:
         # don't submit work, just forward commands to the next task
         return [[output_file], input_files, cmd]
 
     # metadata & fcl manipulation
-    mg_cmd = ''
-    if self.stage_type != StageType('pot'):
-        mg_cmd = meta.run_cmd(
-            output_filename + '.json', os.path.basename(fcl), check_exists=False)
+    mg_cmd = '\n'.join([
+        fcl_cmd_func(self, fcl),
+        meta.run_cmd(output_file.name + '.json', os.path.basename(fcl), check_exists=False)
+    ])
 
-    future = fcl_future(
+    future = future_func(
         workdir = str(run_dir),
-        stdout = str(run_dir / output_filename.replace(".root", ".out")),
-        stderr = str(run_dir / output_filename.replace(".root", ".err")),
+        stdout = str(run_dir / output_file.name.replace(".root", ".out")),
+        stderr = str(run_dir / output_file.name.replace(".root", ".err")),
         template = template,
         cmd = cmd,
         larsoft_opts = executor.larsoft_opts,
@@ -250,7 +188,60 @@ def data_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label='',
         pre_job_hook = mg_cmd
     )
 
+    transfer_ids(self, future.outputs[0])
+
     # this modifies the list passed in by WorkflowExecutor
     executor.futures.append(future.outputs[0])
 
     return [future.outputs, [], '']
+
+
+
+# -------
+#
+# RUNFUNCS
+# 
+# -------
+
+
+mc_runfunc_sbnd=functools.partial(larsoft_runfunc)
+data_runfunc_sbnd=functools.partial(larsoft_runfunc)
+
+
+# icarus: different caf name
+def output_filepath_icarus_data(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt=''):
+    """Pick an output file name based on a stage and its input."""
+    if stage.stage_type != DefaultStageTypes.CAF:
+        # from string or posixpath input
+        _label = label
+        if label != '':
+            _label = label + '-'
+
+        output_filename = ''.join([
+            str(stage.stage_type.name), '-', _label,
+            hash_name(os.path.basename(fcl) + salt + stage.stage_id_str),
+            ".root"
+        ])
+    else:
+        output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.Blind.OKTOLOOK.flat.caf.root'
+
+    return pathlib.PurePosixPath(label, stage.stage_type.name, f'{stage.workflow_id // 1000:06d}', \
+            f'{stage.workflow_id // 100:06d}', output_filename)
+
+def build_modify_fcl_cmd_icarus(stage: Stage, fcl):
+    """generate bash commands that modify fcl"""
+    fcl_cmd = ''
+    fcl_name = os.path.basename(fcl)
+    if stage.stage_type.name == 'overlay':
+        run_number = 1 + (stage.workflow_id // 100)
+        subrun_number = stage.workflow_id % 100
+        fcl_cmd = '\n'.join([
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFilesIcarus/\\"" >> {os.path.basename(fcl)}''',
+            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {os.path.basename(fcl)}''',
+            f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {os.path.basename(fcl)}''',
+        ])
+
+    return fcl_cmd
+
+mc_runfunc_icarus=functools.partial(larsoft_runfunc, fcl_cmd_func=build_modify_fcl_cmd_icarus)
+data_runfunc_icarus=functools.partial(larsoft_runfunc, output_filename_func=output_filepath_icarus_data)

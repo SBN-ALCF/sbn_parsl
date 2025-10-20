@@ -1,20 +1,22 @@
 {
     "run": {
-        "output": "/lus/flare/projects/neutrinoGPU/twester/pds_detvar_test_comp",
+        "output": "/lus/flare/projects/neutrinoGPU/twester/diffusion_detvar_wf_skip_test",
         "fclpath": "",
-        "nsubruns": 1,
+        "nsubruns": 6,
         "max_futures": 60000,
-        "seed": 1234
+        "seed": 1234,
+        "files_per_subrun": 20
     },
     "workflow": {
         "subruns_per_caf": 20,
-        "full_keep_fraction": 0.125
+        "full_keep_fraction": 0.125,
+        "detsim_path": "/lus/flare/projects/neutrinoGPU/twester/pds_detvar_prod_512/cv/detsim"
     },
     "larsoft": {
         "container": "/lus/flare/projects/neutrinoGPU/containers/slf7.sif",
         "software": "sbndcode",
         "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft", 
-        "version": "v10_06_00_04",
+        "version": "v10_06_00_05",
         "qual": "e26:prof",
         "nevts": 50,
         "experiment": "sbnd",
@@ -25,14 +27,14 @@
         "walltime": "1:00:00",
         "nodes_per_block": 1,
         "cores_per_worker": 1,
-	"min_blocks": 0,
-	"max_blocks": 1,
-	"init_blocks": 0,
+        "min_blocks": 0,
+        "max_blocks": 1,
+        "init_blocks": 0,
         "cpus_per_node": 102,
         "cores_per_worker": 1,
         "strategy": "simple",
         "allocation": "14454",
-	"retries": 0
+    "retries": 1
     },
     "fcls": {
         "cv": {
@@ -42,21 +44,18 @@
             "reco1": "standard_reco1_sbnd.fcl",
             "reco2": "standard_reco2_sbnd.fcl",
             "caf": "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl",
-            "scrub": "scrub_PDS_detsim_reco1.fcl"
+            "scrub": "scrub_wcls_detsim_reco1.fcl"
         },
-        "PMTGainFluct": {
-            "detsim": "standard_detsim_sbnd_PMTGainFluct.fcl"
+        "no_longitudinal_diffusion": {
+            "detsim": "standard_detsim_sbnd_no_longitudinal_diffusion_detvar.fcl"
         },
-        "PMTHighNoise": {
-            "detsim": "standard_detsim_sbnd_PMTHighNoise.fcl"
-        },
-        "PMTLowEff": {
-            "detsim": "standard_detsim_sbnd_PMTLowEff.fcl"
+        "no_transverse_diffusion": {
+            "detsim": "standard_detsim_sbnd_no_transverse_diffusion_detvar.fcl"
         }
     },
     "metadata": {
         "exe": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh",
-        "mdprojectversion": "v10_06_00_04"
+        "mdprojectversion": "v10_06_00_05"
     }
 }
 

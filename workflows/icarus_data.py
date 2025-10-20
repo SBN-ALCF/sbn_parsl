@@ -21,7 +21,6 @@ from sbnd_parsl.metadata import MetadataGenerator
 from sbnd_parsl.templates import CMD_TEMPLATE_SPACK, CMD_TEMPLATE_CONTAINER
 from sbnd_parsl.utils import create_default_useropts, create_parsl_config, \
     hash_name
-from sbnd_parsl.dfk_hacks import apply_hacks
 
 # SBND_RAWDATA_REGEXP = re.compile(r".*data_.*run(\d+)_.*\.root")
 
@@ -87,11 +86,18 @@ def runfunc(self, fcl, inputs, run_dir, executor, last_file=None, nevts=-1, nski
     if self.stage_type != DefaultStageTypes.CAF:
         output_file_arg_str = f'--output {str(output_file)}'
 
+    if executor.file_in_db(output_file):
+        # print(f'Skipping {output_file} (found in database)')
+        executor._skip_counter += 1
+        return [[output_file], '']
+
     if output_file.is_file():
-        print(f'Skipping {output_file}, already exists')
+        # print(f'Skipping {output_file} (found on filesystem)')
+        executor._skip_counter += 1
         return [[output_file], '']
 
     # output_filepath = output_dir / output_filename
+    executor._stage_counter += 1
 
     input_file_arg_str = ''
     parent_cmd = ''
@@ -162,7 +168,7 @@ class DecoderExecutor(WorkflowExecutor):
         self.run_counter = 0
 
     def file_generator(self):
-        path_generators = [self.rawdata_path.rglob('[a-z]?/*fstrmBNBMAJORITY*')]
+        path_generators = [self.rawdata_path.rglob('[0-9]?/*.root')]
         generator = itertools.chain(*path_generators)
         for f in generator:
             yield f

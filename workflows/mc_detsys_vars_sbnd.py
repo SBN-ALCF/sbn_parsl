@@ -29,7 +29,6 @@ class Reco2FromGenExecutor(WorkflowExecutor):
         super().__init__(settings)
 
         self.unique_run_number = 0
-        self.lar_run_counter = 0
         self.name_salt = str(settings['run']['seed']) + str(self.output_dir)
         self.detsim_path = pathlib.PosixPath(settings['workflow']['detsim_path'])
 

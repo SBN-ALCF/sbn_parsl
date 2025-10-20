@@ -27,7 +27,6 @@ def test_stage_add_parent_last_stage():
     workflow.add_final_stage(s1)
 
     s2 = Stage(DefaultStageTypes.GEN)
-    print(s1.stage_type, stage_order)
     
     # OK: s2 is the first stage in the order, so we don't need to know
     # the fcl files for its parents
@@ -100,7 +99,6 @@ def test_combine():
     runs = 0
     while True:
         try:
-            print('start loop')
             next(workflow.get_next_task())
             runs += 1
         except StopIteration:
