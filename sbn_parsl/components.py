@@ -12,9 +12,9 @@ import parsl
 from parsl.data_provider.files import File
 from parsl.app.app import bash_app
 
-from sbnd_parsl.workflow import StageType, Stage, DefaultStageTypes
+from sbn_parsl.workflow import StageType, Stage, DefaultStageTypes
 
-from sbnd_parsl.utils import hash_name
+from sbn_parsl.utils import hash_name
 
 
 
@@ -70,7 +70,14 @@ def build_larsoft_cmd(stage: Stage, fcl, inputs: List=None, output_file: pathlib
     nevts = -1
     if stage.stage_type == DefaultStageTypes.GEN:
         nevts = lar_args["nevts"]
-    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts}'
+
+    nskip = ''
+    try:
+        nskip = f' --nskip={lar_args["nskip"]}'
+    except KeyError:
+        pass
+
+    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts}{nskip}'
 
 
 def transfer_ids(stage: Stage, future):
@@ -100,7 +107,7 @@ def build_modify_fcl_cmd(stage: Stage, fcl):
 
 def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label='', last_file=None, \
         output_filename_func=output_filepath, lar_cmd_func=build_larsoft_cmd, fcl_cmd_func=build_modify_fcl_cmd, \
-        future_func=fcl_future):
+        future_func=fcl_future, **kwargs):
     """
     Method bound to each Stage object and run during workflow execution. Use
     this runfunc for generating MC events.
@@ -115,17 +122,22 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
      - lar_cmd_func: Specify how lar command is built
      - fcl_cmd_func: Function that generates bash script to override fcl params
      - future func: Function that typically submits a parsl future
+
+    Extra kwargs will override larsoft options
     """
 
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # first stage for file workflows will have a string as input
+    # first stage for file workflows will have a string or path as input
     # put it in a general form that can be passed to the next stage
     if not isinstance(inputs, list):
         first_arg = []
         if inputs is not None:
             first_arg = [inputs]
         inputs = [first_arg, [], '']
+    else:
+        if len(inputs) == 1:
+            inputs = [inputs, [], '']
 
     input_files = list(itertools.chain.from_iterable(inputs[0::3]))
     depends = list(itertools.chain.from_iterable(inputs[1::3]))
@@ -152,9 +164,11 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
     executor._stage_counter += 1
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
+    lar_opts = executor.larsoft_opts.copy()
+    lar_opts.update(kwargs)
     cmd = ' && '.join([
         f'mkdir -p {run_dir} && cd {run_dir}',
-        lar_cmd_func(self, fcl, input_files, output_file, executor.larsoft_opts)
+        lar_cmd_func(self, fcl, input_files, output_file, lar_opts)
     ])
 
     if parent_cmd:

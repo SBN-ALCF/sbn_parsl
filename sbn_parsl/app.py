@@ -4,9 +4,9 @@ import json
 
 import parsl
 
-from sbnd_parsl.workflow import WorkflowExecutor
-from sbnd_parsl.utils import create_default_useropts, create_parsl_config
-from sbnd_parsl.dfk_hacks import apply_hacks
+from sbn_parsl.workflow import WorkflowExecutor
+from sbn_parsl.utils import create_default_useropts, create_parsl_config
+from sbn_parsl.dfk_hacks import apply_hacks
 
 
 def entry_point(argv, wfe_class):

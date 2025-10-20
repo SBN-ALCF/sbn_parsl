@@ -1,8 +1,8 @@
 import pytest
 import pathlib
 
-from sbnd_parsl.workflow import DefaultStageTypes, Stage
-from sbnd_parsl.components import build_larsoft_cmd, output_filepath, \
+from sbn_parsl.workflow import DefaultStageTypes, Stage
+from sbn_parsl.components import build_larsoft_cmd, output_filepath, \
         build_modify_fcl_cmd
 
 

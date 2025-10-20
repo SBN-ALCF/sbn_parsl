@@ -306,7 +306,7 @@ class Stage:
 
         for s in stages:
             if s.stage_type != self.parent_type:
-                raise StageAncestorException(f"Tried to add stage of type {s.stage_type} as a parent to a stage with type {self.stage_type}")
+                raise StageAncestorException(f"Tried to add stage of type {s.stage_type.name} as a parent to a stage with type {self.stage_type.name}")
             if s.workflow_id is None:
                 s.workflow_id = self.workflow_id
             if s.stage_id is None:

@@ -1,7 +1,7 @@
 import os
 
-from sbnd_parsl.metadata import MetadataGenerator
-from sbnd_parsl.workflow import StageType, Stage, Workflow
+from sbn_parsl.metadata import MetadataGenerator
+from sbn_parsl.workflow import StageType, Stage, Workflow
 
 
 from parsl.data_provider.files import File

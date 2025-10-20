@@ -1,7 +1,7 @@
 import pytest
 
-from sbnd_parsl.workflow import Workflow, Stage, StageType, DefaultStageTypes, run_stage
-from sbnd_parsl.workflow import NoStageOrderException, NoFclFileException
+from sbn_parsl.workflow import Workflow, Stage, StageType, DefaultStageTypes, run_stage
+from sbn_parsl.workflow import NoStageOrderException, NoFclFileException
 
 
 def test_stage_init():
