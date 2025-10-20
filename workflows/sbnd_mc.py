@@ -8,12 +8,12 @@ import pathlib
 import functools
 from typing import Dict, List
 
-from sbnd_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor, \
+from sbn_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor, \
         DefaultStageTypes
-from sbnd_parsl.templates import CMD_TEMPLATE_CONTAINER
-from sbnd_parsl.components import mc_runfunc_sbnd
-from sbnd_parsl.app import entry_point
-from sbnd_parsl.metadata import MetadataGenerator
+from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
+from sbn_parsl.components import mc_runfunc_sbnd
+from sbn_parsl.app import entry_point
+from sbn_parsl.metadata import MetadataGenerator
 
 
 class CAFFromGenExecutor(WorkflowExecutor):
