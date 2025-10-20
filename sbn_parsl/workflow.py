@@ -737,7 +737,7 @@ class WorkflowExecutor:
         # sync the in-memory database with the disk one if we had any changes
         if npass > 0:
             self._mem_db.backup(self._disk_db)
-            self.futures = remaining_futures
+        self.futures = remaining_futures
 
     def setup_single_workflow_wrapper(self, iteration: int, inputs=None, last_file=None):
         """Wrap setting the workflow ID so that the user doesn't have to do it."""

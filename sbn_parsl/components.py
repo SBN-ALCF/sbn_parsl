@@ -125,7 +125,6 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
 
     run_dir.mkdir(parents=True, exist_ok=True)
     lar_opts = executor.larsoft_opts.copy()
-    print(kwargs)
     lar_opts.update(kwargs)
 
     # first stage for file workflows will have a string or path as input
@@ -151,20 +150,18 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
             first_file_name = inputs[0][0].filename
 
     output_file = executor.output_dir / output_filename_func(self, first_file_name, fcl, label, executor.name_salt, lar_opts)
-    print(output_file)
 
     if executor.stage_in_db(self.stage_id_str):
         executor._skip_counter += 1
-        return [[output_file], '']
+        return [[output_file], [], '']
 
     if output_file.is_file():
         executor._skip_counter += 1
-        return [[output_file], '']
+        return [[output_file], [], '']
 
     executor._stage_counter += 1
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    print(lar_opts)
     cmd = ' && '.join([
         f'mkdir -p {run_dir} && cd {run_dir}',
         lar_cmd_func(self, fcl, input_files, output_file, lar_opts)
