@@ -33,7 +33,7 @@ def fcl_future(workdir, stdout, stderr, template, cmd, larsoft_opts, inputs=[], 
     )
 
 
-def output_filepath(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt=''):
+def output_filepath(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt='', lar_opts={}):
     """Pick an output file name based on a stage and its input."""
     if stage.stage_type != DefaultStageTypes.CAF:
         # from string or posixpath input
@@ -67,17 +67,14 @@ def build_larsoft_cmd(stage: Stage, fcl, inputs: List=None, output_file: pathlib
             ' '.join([f'-s {str(file)}' if not isinstance(file, parsl.app.futures.DataFuture) else f'-s {str(file.filepath)}' for file in inputs])
 
     # stages after gen: don't limit number of events; use all events from all input files
-    nevts = -1
-    if stage.stage_type == DefaultStageTypes.GEN:
-        nevts = lar_args["nevts"]
-
+    nevts = f' --nevts={lar_args["nevts"]}'
     nskip = ''
     try:
         nskip = f' --nskip={lar_args["nskip"]}'
     except KeyError:
         pass
 
-    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts}{nskip}'
+    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str} {nevts}{nskip}'
 
 
 def transfer_ids(stage: Stage, future):
@@ -127,6 +124,9 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
     """
 
     run_dir.mkdir(parents=True, exist_ok=True)
+    lar_opts = executor.larsoft_opts.copy()
+    print(kwargs)
+    lar_opts.update(kwargs)
 
     # first stage for file workflows will have a string or path as input
     # put it in a general form that can be passed to the next stage
@@ -150,7 +150,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
         else:
             first_file_name = inputs[0][0].filename
 
-    output_file = executor.output_dir / output_filename_func(self, first_file_name, fcl, label, executor.name_salt)
+    output_file = executor.output_dir / output_filename_func(self, first_file_name, fcl, label, executor.name_salt, lar_opts)
     print(output_file)
 
     if executor.stage_in_db(self.stage_id_str):
@@ -164,8 +164,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
     executor._stage_counter += 1
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    lar_opts = executor.larsoft_opts.copy()
-    lar_opts.update(kwargs)
+    print(lar_opts)
     cmd = ' && '.join([
         f'mkdir -p {run_dir} && cd {run_dir}',
         lar_cmd_func(self, fcl, input_files, output_file, lar_opts)
@@ -223,18 +222,17 @@ data_runfunc_sbnd=functools.partial(larsoft_runfunc)
 
 
 # icarus: different caf name
-def output_filepath_icarus_data(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt=''):
-    """Pick an output file name based on a stage and its input."""
+def output_filepath_icarus_data(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt='', lar_opts={}):
+    """Pick an output file name based on input filename."""
+    nskip = 0
+    try:
+        nskip = lar_opts['nskip']
+    except KeyError:
+        pass
     if stage.stage_type != DefaultStageTypes.CAF:
         # from string or posixpath input
-        _label = label
-        if label != '':
-            _label = label + '-'
-
-        output_filename = ''.join([
-            str(stage.stage_type.name), '-', _label,
-            hash_name(os.path.basename(fcl) + salt + stage.stage_id_str),
-            ".root"
+        output_filename = '-'.join([
+            str(stage.stage_type.name), f'{nskip:03d}', os.path.basename(first_file_name),
         ])
     else:
         output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.Blind.OKTOLOOK.flat.caf.root'
