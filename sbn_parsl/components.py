@@ -74,7 +74,7 @@ def build_larsoft_cmd(stage: Stage, fcl, inputs: List=None, output_file: pathlib
     except KeyError:
         pass
 
-    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str} {nevts}{nskip}'
+    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
 
 
 def transfer_ids(stage: Stage, future):
