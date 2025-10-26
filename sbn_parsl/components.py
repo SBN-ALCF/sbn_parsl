@@ -139,12 +139,17 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
             inputs = [inputs, [], '']
 
     input_files = list(itertools.chain.from_iterable(inputs[0::3]))
+    # if we pass in pathlib Paths, parsl will complain that it can't memoize them
+    input_files = [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files]
+
     depends = list(itertools.chain.from_iterable(inputs[1::3]))
     parent_cmd = '&&'.join(pc for pc in inputs[2::3] if pc != '')
 
     first_file_name = ''
     if self.stage_type != DefaultStageTypes.GEN:
         if not isinstance(inputs[0][0], parsl.app.futures.DataFuture):
+            if not isinstance(inputs[0][0], pathlib.Path):
+                inputs[0][0] = pathlib.Path(inputs[0][0])
             first_file_name = inputs[0][0].name
         else:
             first_file_name = inputs[0][0].filename
@@ -168,13 +173,12 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
     ])
 
     if parent_cmd:
-        cmd = ' && '.join([cmd, parent_cmd])
+        cmd = ' && '.join([parent_cmd, cmd])
 
     dummy_input = None
     if last_file is not None:
         dummy_input = last_file[0][0]
-    input_arg = [str(fcl), dummy_input]
-    input_arg += [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files] + depends
+    input_arg = [str(fcl), dummy_input] + input_files + depends
 
     if self.combine:
         # don't submit work, just forward commands to the next task

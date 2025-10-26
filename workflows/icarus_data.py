@@ -52,7 +52,7 @@ class DecoderExecutor(WorkflowExecutor):
 
         # pass in extra larsoft opts to only process 5 events per task
         stage0_runfuncs = [functools.partial(data_runfunc_icarus, meta=self.meta, template=CMD_TEMPLATE_CONTAINER, executor=self, \
-                nevts=1, nskip=(i * 5)) for i in range(10)]
+                nevts=5, nskip=(i * 5)) for i in range(10)]
 
         for i, file in enumerate(rawdata_files):
             for j in range(10):
