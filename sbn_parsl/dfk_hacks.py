@@ -24,15 +24,16 @@ class ResultFuture(Future):
         self.tid = task_id
 
 
-def my_update_memo(self, task, r: Future) -> None:
+def my_update_memo(self, task, r: Future=None) -> None:
     """
     update memo function that stores a copy of the future result, instead of
     the original future, in the memo_lookup_table. The original future result
     contains references to the parent AppFutures, preventing them from being
     garbage collected otherwise.
     """
-    # TODO: could use typeguard
-    assert isinstance(r, Future)
+    # for forwards compatibility, r is optional
+    if r is None:
+        r = task['app_fu']
 
     task_id = task['id']
 
