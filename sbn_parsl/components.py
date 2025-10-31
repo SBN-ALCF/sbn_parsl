@@ -139,8 +139,13 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
             inputs = [inputs, [], '']
 
     input_files = list(itertools.chain.from_iterable(inputs[0::3]))
-    # if we pass in pathlib Paths, parsl will complain that it can't memoize them
+    # if we pass in pathlib Paths, parsl will complain that it can't memoize
+    # them, so they need to be strings or datafutures
     input_files = [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files]
+
+    # this list of inputs will be passed to user components so users don't need
+    # to interact with parsl objects
+    input_files_user = [f.filename if isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files]
 
     depends = list(itertools.chain.from_iterable(inputs[1::3]))
     parent_cmd = '&&'.join(pc for pc in inputs[2::3] if pc != '')
@@ -169,7 +174,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
 
     cmd = ' && '.join([
         f'mkdir -p {run_dir} && cd {run_dir}',
-        lar_cmd_func(self, fcl, input_files, output_file, lar_opts)
+        lar_cmd_func(self, fcl, input_files_user, output_file, lar_opts)
     ])
 
     if parent_cmd:
@@ -219,7 +224,51 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
 
 
 mc_runfunc_sbnd=functools.partial(larsoft_runfunc)
-data_runfunc_sbnd=functools.partial(larsoft_runfunc)
+
+def build_larsoft_cmd_sbnd_data(stage: Stage, fcl, inputs: List=None, output_file: pathlib.Path=pathlib.Path('sbn_parsl_out.root'), lar_args={}) -> str:
+    """Build larsoft command with input & output flags"""
+    # caf stage does not get an output argument
+    output_file_arg_str = ''
+    if stage.stage_type != DefaultStageTypes.CAF:
+        output_file_arg_str = f'--output={str(output_file)}'
+
+    # specify output stream for SBND decode stage
+    if stage.stage_type == DefaultStageTypes.DECODE:
+        output_file_arg_str = f'--output=out1:{str(output_file)}'
+
+    input_file_arg_str = ''
+    if inputs:
+        input_file_arg_str = \
+            ' '.join([f'-s {str(file)}' if not isinstance(file, parsl.app.futures.DataFuture) else f'-s {str(file.filepath)}' for file in inputs])
+
+    # stages after gen: don't limit number of events; use all events from all input files
+    if stage.stage_type != DefaultStageTypes.GEN:
+        nevts = f' --nevts=-1'
+    else:
+        nevts = f' --nevts={lar_args["nevts"]}'
+
+    nskip = ''
+    try:
+        nskip = f' --nskip={lar_args["nskip"]}'
+    except KeyError:
+        pass
+
+    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
+
+def output_filepath_sbnd_data(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt='', lar_opts={}):
+    """Pick an output file name based on input filename."""
+    if stage.stage_type != DefaultStageTypes.CAF:
+        # from string or posixpath input
+        output_filename = '-'.join([
+            str(stage.stage_type.name), os.path.basename(first_file_name),
+        ])
+    else:
+        output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.flat.caf.root'
+
+    return pathlib.PurePosixPath(label, stage.stage_type.name, f'{stage.workflow_id // 1000:06d}', \
+            f'{stage.workflow_id // 100:06d}', output_filename)
+
+data_runfunc_sbnd=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_sbnd_data, output_filename_func=output_filepath_sbnd_data)
 
 
 # icarus: different caf name

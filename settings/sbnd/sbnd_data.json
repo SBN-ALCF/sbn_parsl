@@ -1,0 +1,48 @@
+{
+    "run": {
+        "output": "your_output_dir",
+        "fclpath": "",
+        "nsubruns": 1,
+        "max_futures": 60000,
+        "seed": 1234,
+        "files_per_subrun": 1
+    },
+    "workflow": {
+	"rawdata_path": "/lus/flare/projects/neutrinoGPU/sbnd/data/018000/018400/018459"
+    },
+    "larsoft": {
+        "container": "/lus/flare/projects/neutrinoGPU/containers/slf7.sif",
+        "software": "sbndcode",
+        "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft", 
+        "version": "v10_06_00_04",
+        "qual": "e26:prof",
+        "nevts": 20,
+        "experiment": "sbnd",
+        "lar_args" : ""
+    },
+    "queue": {
+        "queue": "debug",
+        "walltime": "1:00:00",
+        "nodes_per_block": 1,
+        "cores_per_worker": 1,
+	"min_blocks": 0,
+	"max_blocks": 1,
+	"init_blocks": 0,
+        "cpus_per_node": 102,
+        "cores_per_worker": 1,
+        "strategy": "simple",
+        "allocation": "neutrinoGPU::debug2",
+	"retries": 0
+    },
+    "fcls": {
+        "decode": "run_decoders_job.fcl",
+        "pot": "run_sbndbnbinfo_sbn.fcl",
+        "reco1": "reco1_data_dnnroi.fcl",
+        "reco2": "reco2_data.fcl",
+        "caf": "cafmakerjob_sbnd_data_sce_bnblight_dnnroi.fcl"
+    },
+    "metadata": {
+        "exe": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh",
+        "mdprojectversion": "v10_06_00_04"
+    }
+}
