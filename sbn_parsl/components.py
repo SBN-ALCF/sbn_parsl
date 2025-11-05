@@ -47,6 +47,7 @@ class RunContext:
     """
     stage: Stage
     input_files: List[pathlib.Path] = field(default_factory=list)
+    out_dir: pathlib.Path = pathlib.Path("")
     fcl: pathlib.Path = None
     lar_args: Dict = None
     salt: str = ''
@@ -82,9 +83,10 @@ def output_filepath(context: RunContext) -> pathlib.Path:
             ".root"
         ])
     else:
-        output_filename = os.path.splitext(context.input_files.name)[0] + '.flat.caf.root'
+        output_filename = os.path.splitext(context.input_files[0].name)[0] + '.flat.caf.root'
 
-    return pathlib.PurePosixPath(context.label, context.stage.stage_type.name, f'{context.stage.workflow_id // 1000:06d}', \
+    return context.out_dir / pathlib.Path(context.label, context.stage.stage_type.name, \
+            f'{context.stage.workflow_id // 1000:06d}', \
             f'{context.stage.workflow_id // 100:06d}', output_filename)
 
 
@@ -137,7 +139,7 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
     return fcl_cmd
 
 
-def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label='', last_file=None, \
+def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, label='', last_file=None, \
         output_filename_func=output_filepath, lar_cmd_func=build_larsoft_cmd, fcl_cmd_func=build_modify_fcl_cmd, \
         future_func=fcl_future, **kwargs):
     """
@@ -188,7 +190,8 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
         input_files=[pathlib.Path(f.filename) \
                 if isinstance(f, parsl.app.futures.DataFuture) \
                 else pathlib.Path(f) for f in input_files],
-        fcl=fcl,
+        out_dir = executor.output_dir,
+        fcl=pathlib.Path(fcl),
         label=label,
         lar_args=lar_opts,
         salt=executor.name_salt,
@@ -211,7 +214,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
         executor._skip_counter += 1
         return [[context.output_file], [], '']
 
-    if output_file.is_file():
+    if context.output_file.is_file():
         executor._skip_counter += 1
         return [[context.output_file], [], '']
 
@@ -237,10 +240,11 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, meta, executor, label=
         return [[context.output_file], input_files, cmd]
 
     # metadata & fcl manipulation
-    mg_cmd = '\n'.join([
-        fcl_cmd_func(self, fcl),
-        meta.run_cmd(context.output_file.name + '.json', os.path.basename(fcl), check_exists=False)
-    ])
+    mg_cmd = fcl_cmd_func(context)
+    if meta is not None:
+        mg_cmd += '\n' + \
+                meta.run_cmd(context.output_file.name + '.json', os.path.basename(fcl), check_exists=False)
+
 
     future = future_func(
         workdir = str(run_dir),
@@ -277,11 +281,11 @@ def build_larsoft_cmd_sbnd_data(context: RunContext) -> str:
     # caf stage does not get an output argument
     output_file_arg_str = ''
     if context.stage.stage_type != DefaultStageTypes.CAF:
-        output_file_arg_str = f'--output={str(output_file)}'
+        output_file_arg_str = f'--output={str(context.output_file)}'
 
     # specify output stream for SBND decode stage
     if context.stage.stage_type == DefaultStageTypes.DECODE:
-        output_file_arg_str = f'--output=out1:{str(output_file)}'
+        output_file_arg_str = f'--output=out1:{str(context.output_file)}'
 
     input_file_arg_str = ''
     if context.input_files:
@@ -300,7 +304,7 @@ def build_larsoft_cmd_sbnd_data(context: RunContext) -> str:
     except KeyError:
         pass
 
-    return f'lar -c {fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
+    return f'lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
 
 
 def output_filepath_sbnd_data(context: RunContext) -> pathlib.Path:
@@ -311,9 +315,10 @@ def output_filepath_sbnd_data(context: RunContext) -> pathlib.Path:
             str(context.stage.stage_type.name), context.input_files[0].name,
         ])
     else:
-        output_filename = os.path.splitext(context.input_files.name)[0] + '.flat.caf.root'
+        output_filename = os.path.splitext(context.input_files[0].name)[0] + '.flat.caf.root'
 
-    return pathlib.PurePosixPath(label, context.stage.stage_type.name, f'{context.stage.workflow_id // 1000:06d}', \
+    return context.out_dir / pathlib.Path(context.label, context.stage.stage_type.name, \
+            f'{context.stage.workflow_id // 1000:06d}', \
             f'{context.stage.workflow_id // 100:06d}', output_filename)
 
 data_runfunc_sbnd=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_sbnd_data, output_filename_func=output_filepath_sbnd_data)
@@ -335,7 +340,8 @@ def output_filepath_icarus_data(stage: Stage, first_file_name: str, fcl: pathlib
     else:
         output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.Blind.OKTOLOOK.flat.caf.root'
 
-    return pathlib.PurePosixPath(label, stage.stage_type.name, f'{stage.workflow_id // 1000:06d}', \
+    return context.out_dir / pathlib.Path(label, stage.stage_type.name, \
+            f'{stage.workflow_id // 1000:06d}', \
             f'{stage.workflow_id // 100:06d}', output_filename)
 
 def build_modify_fcl_cmd_icarus(context: RunContext):

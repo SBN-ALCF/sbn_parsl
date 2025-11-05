@@ -19,19 +19,6 @@ from sbn_parsl.app import entry_point
 
 POT = StageType('pot')
 
-# will crash unless we include the metadata service in the fcl
-def build_modify_fcl_cmd(stage: Stage, fcl):
-    """generate bash commands that modify fcl"""
-    fcl_cmd = ''
-    fcl_name = os.path.basename(fcl)
-    if stage.stage_type == POT:
-        fcl_cmd = '\n'.join([
-            f"""sed -i -e '1i #include \\"sam_sbnd.fcl\\"' {fcl_name}""",
-        ])
-
-    return fcl_cmd
-
-data_runfunc_sbnd_pot_fix = functools.partial(data_runfunc_sbnd, fcl_cmd_func=build_modify_fcl_cmd)
 
 class DecoderExecutor(WorkflowExecutor):
     """Execute a decoder workflow from user settings."""
@@ -69,7 +56,9 @@ class DecoderExecutor(WorkflowExecutor):
             raise RuntimeError()
 
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
-        runfunc_ = functools.partial(data_runfunc_sbnd_pot_fix, meta=self.meta, 
+        runfunc_ = functools.partial(data_runfunc_sbnd, meta=self.meta, 
+                                     template=CMD_TEMPLATE_CONTAINER, executor=self, last_file=last_file)
+        runfunc_no_meta = functools.partial(data_runfunc_sbnd, meta=None, 
                                      template=CMD_TEMPLATE_CONTAINER, executor=self, last_file=last_file)
         s = Stage(DefaultStageTypes.CAF)
         s.run_dir = get_subrun_dir(self.output_dir, iteration)
@@ -85,9 +74,11 @@ class DecoderExecutor(WorkflowExecutor):
             sreco2.add_parents(sreco1, workflow.default_fcls)
 
             spot = Stage(POT)
+            spot.runfunc = runfunc_no_meta
             sreco1.add_parents(spot, workflow.default_fcls)
 
             sdecode = Stage(DefaultStageTypes.DECODE)
+            sdecode.runfunc = runfunc_
             spot.add_parents(sdecode, workflow.default_fcls)
 
             sdecode.add_input_file(file)
