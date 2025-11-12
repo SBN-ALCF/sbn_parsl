@@ -69,7 +69,7 @@ class DecoderExecutor(WorkflowExecutor):
         workflow.add_final_stage(s)
 
         decode_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
-                meta=self.meta, executor=self, nevts=1, nskip=(i * 5)) for i in range(10)]
+                meta=self.meta, executor=self, nevts=5, nskip=(i * 5)) for i in range(10)]
 
         for i, file in enumerate(rawdata_files):
             for j in range(10):

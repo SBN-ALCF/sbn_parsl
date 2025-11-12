@@ -354,7 +354,7 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         fcl_cmd = '\n'.join([
             f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFilesIcarus/\\"" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
-            f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {os.path.basename(fcl)}''',
+            f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
 
     return fcl_cmd

@@ -19,17 +19,19 @@ pip install -e .
 
 `sbnd_parsl` provides a three-level class structure for structuring job submission:
 
-- `Stage` objects for defining individual tasks, e.g., running a single FCL file.
-- `Workflow` objects for composing multiple stages together with dependencies.
-- `WorkflowExecutor` objects for configuring workflows from user settings.
+- `Stage` objects for handling individual tasks, e.g., optionally modifying & running a single FCL file
+- `Workflow` objects for composing multiple stages together with dependencies on the outputs of other stages
+- `WorkflowExecutor` objects for configuring workflows from user settings, and executing multiple copies of a Workflow for scaling to large jobs
 
 ### Basic Example
+
+Below, we set up a `WorkflowExecutor` and implement its `setup_single_workflow` function:
 
 ```python
 #!/usr/bin/env python3
 import pathlib
 
-from sbnd_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor
+from sbnd_parsl.workflow import DefaultStageTypes, Stage, Workflow, WorkflowExecutor
 
 
 class SimpleWorkflowExecutor(WorkflowExecutor):
@@ -37,21 +39,15 @@ class SimpleWorkflowExecutor(WorkflowExecutor):
         super().__init__(settings)
 
     def setup_single_workflow(self, iteration):
-        stage_order = [StageType.GEN, StageType.G4, StageType.DETSIM]
+        stage_order = [DefaultStageTypes.GEN, DefaultStageTypes.G4, DefaultStageTypes.DETSIM]
 
         workflow = Workflow(stage_order, self.fcls)
-        s = Stage(StageType.DETSIM)
+        s = Stage(DefaultStageTypes.DETSIM)
         s.run_dir = str(pathlib.Path(self.run_opts['output']) / str(iteration))
-        workflow.add_final_stage(s)
-
-        s2 = Stage(StageType.DETSIM)
-        s2.run_dir = str(pathlib.Path(self.run_opts['output']) / str(iteration) / 'a')
-        workflow.add_final_stage(s2)
 
         # workflow will automatically fill in g4 and gen stages, with
         # run_dir inherited from detsim stage
-        s0 = Stage(StageType.G4)
-        s.add_parents(s0, workflow.default_fcls)
+        workflow.add_final_stage(s)
 
         return workflow
 
@@ -92,10 +88,12 @@ lar -c detsim.fcl -s output/g4.root --output output/detsim.root
 
 ### Adding Parsl
 
-To actually submit work with Parsl, you need to define a `runfunc` for at least
-the final `Stage` added to the `Workflow`. The `runfunc` must have the minimal
-function signature in the extended example below, and should return a list of
-Parsl `File` objects. 
+To submit work with Parsl, you need to assign a `runfunc` for at least the
+final `Stage` added to the `Workflow`. Runfuncs for SBND and ICARUS data &
+simulation workflows are provided within the `sbn_parsl.components` module, so
+users may not need to implement these themsevles. The `runfunc` must have the
+minimal function signature in the extended example below, and should return a
+list of Parsl `File` objects. 
 
 ```python
 ...

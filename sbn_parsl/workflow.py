@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 from enum import Enum, Flag, auto
 from typing import List, Tuple, Dict, Optional, Callable
 
+from sbn_parsl.utils import hash_name
+
 
 class NoInputFileException(Exception):
     pass
@@ -560,12 +562,20 @@ class WorkflowExecutor:
         self._success_counter = 0
         self._fail_counter = 0
 
-        # file tracking with sqlite as files are created, write them to the
-        # database this allows us to check the database instead of the
-        # filesystem on workflow restarts. While Parsl does this generically
-        # for tasks, using the Parsl task cache requires actually submitting
-        # the task, whereas this check can avoid submitting the task entirely
-        db_file = self.output_dir / 'runinfo' / 'cmd' / 'file_cache.db'
+        # file tracking with sqlite
+        # as files are created, write them to the database. this allows us to
+        # check the database instead of the filesystem on workflow restarts.
+        # While Parsl does this generically for tasks, using the Parsl task
+        # cache requires actually submitting the task, whereas this check can
+        # avoid submitting the task entirely
+
+        # DB file is unique to settings used for the workflow, modulo the queue
+        # settings which could change on re-runs
+        hash_settings = settings.copy()
+        del hash_settings['queue']
+        db_suffix = hash_name(json.dumps(hash_settings, sort_keys=True), sep='')
+
+        db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
         db_file.parent.mkdir(exist_ok=True)
         self._disk_db = sqlite3.connect(str(db_file))
         self._mem_db = sqlite3.connect(":memory:")
