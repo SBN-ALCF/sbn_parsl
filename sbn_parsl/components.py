@@ -21,7 +21,7 @@ from sbn_parsl.metadata import MetadataGenerator
 from sbn_parsl.utils import hash_name
 
 
-@bash_app(cache=True)
+@bash_app(cache=False)
 def fcl_future(workdir, stdout, stderr, template, cmd, larsoft_opts, inputs=[], outputs=[], pre_job_hook='', post_job_hook=''):
     """Return formatted bash script which produces each future when executed."""
     return template.format(
@@ -41,7 +41,7 @@ class RunContext:
     """
     Context object passed to different components during runfunc.
     Output file is set during the runfunc but may be used by other components
-    For this reason it doesn't need to be initialized at context cretaion, but
+    For this reason it doesn't need to be initialized at context creation, but
     must be set before use later
     LAr args are executor larsoft options after any stage overrides
     """
@@ -185,12 +185,15 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
 
     # create a context object for our components
     # convert datafutures so user-code doesn't have to handle Parsl types
+    # combined stages: Write output files to /tmp on Aurora instead of flare
+    # slightly better IO & avoids keeping them on disk
+    # TODO this mkdir must be run on the worker!
     context = RunContext(
         stage=self,
         input_files=[pathlib.Path(f.filename) \
                 if isinstance(f, parsl.app.futures.DataFuture) \
                 else pathlib.Path(f) for f in input_files],
-        out_dir = executor.output_dir,
+        out_dir = executor.output_dir if not self.combine else pathlib.Path('/tmp'),
         fcl=pathlib.Path(fcl),
         label=label,
         lar_args=lar_opts,
@@ -221,14 +224,21 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     executor._stage_counter += 1
     context.output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = ' && '.join([
-        f'mkdir -p {run_dir} && cd {run_dir}',
+    cmd = '\n'.join([
+        f'mkdir -p {run_dir}',
+        f'mkdir -p {context.output_file.parent}',
+        f'cd {run_dir}',
         lar_cmd_func(context)
     ])
     # lar_cmd_func(self, fcl, input_files_user, output_file, lar_opts)
 
     if parent_cmd:
-        cmd = ' && '.join([parent_cmd, cmd])
+        cmd = '\n'.join([parent_cmd, cmd])
+
+    # print(fcl)
+    # print(input_files)
+    # print(depends)
+    # print(cmd)
 
     dummy_input = None
     if last_file is not None:
@@ -237,7 +247,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
 
     if self.combine:
         # don't submit work, just forward commands to the next task
-        return [[context.output_file], input_files, cmd]
+        return [[context.output_file], input_files + depends, cmd]
 
     # metadata & fcl manipulation
     mg_cmd = fcl_cmd_func(context)
@@ -325,14 +335,14 @@ data_runfunc_sbnd=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_
 
 
 # icarus: different caf name
-def output_filepath_icarus_data(stage: Stage, first_file_name: str, fcl: pathlib.Path, label: str='', salt='', lar_opts={}):
+def output_filepath_icarus_data(context: RunContext) -> pathlib.Path:
     """Pick an output file name based on input filename."""
     nskip = 0
     try:
-        nskip = lar_opts['nskip']
+        nskip = context.lar_opts['nskip']
     except KeyError:
         pass
-    if stage.stage_type != DefaultStageTypes.CAF:
+    if context.stage.stage_type != DefaultStageTypes.CAF:
         # from string or posixpath input
         output_filename = '-'.join([
             str(stage.stage_type.name), f'{nskip:03d}', os.path.basename(first_file_name),
@@ -343,6 +353,27 @@ def output_filepath_icarus_data(stage: Stage, first_file_name: str, fcl: pathlib
     return context.out_dir / pathlib.Path(label, stage.stage_type.name, \
             f'{stage.workflow_id // 1000:06d}', \
             f'{stage.workflow_id // 100:06d}', output_filename)
+
+def output_filepath_icarus_mc(context: RunContext) -> pathlib.Path:
+    """Pick an output file name based on input filename (for overlay MC)."""
+    nskip = 0
+    try:
+        nskip = context.lar_args['nskip']
+    except KeyError:
+        pass
+    if context.stage.stage_type != DefaultStageTypes.CAF:
+        # add, e.g., "-030-" to filename if we are only processing part of it
+        skip_str = f'{nskip:03d}' if context.lar_args['nevts'] > 0 else ''
+        # from string or posixpath input
+        output_filename = '-'.join(filter(None, [
+            str(context.stage.stage_type.name), skip_str, context.input_files[0].name,
+        ]))
+    else:
+        output_filename = os.path.splittext(context.input_files[0].name)[0] + '.flat.caf.root'
+
+    return context.out_dir / pathlib.Path(context.stage.stage_type.name, \
+            f'{context.stage.workflow_id // 1000:06d}', \
+            f'{context.stage.workflow_id // 100:06d}', output_filename)
 
 def build_modify_fcl_cmd_icarus(context: RunContext):
     """generate bash commands that modify fcl"""
@@ -359,5 +390,5 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
 
     return fcl_cmd
 
-mc_runfunc_icarus=functools.partial(larsoft_runfunc, fcl_cmd_func=build_modify_fcl_cmd_icarus)
+mc_runfunc_icarus=functools.partial(larsoft_runfunc, output_filename_func=output_filepath_icarus_mc, fcl_cmd_func=build_modify_fcl_cmd_icarus)
 data_runfunc_icarus=functools.partial(larsoft_runfunc, output_filename_func=output_filepath_icarus_data)

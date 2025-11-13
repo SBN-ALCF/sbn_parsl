@@ -223,25 +223,26 @@ singularity run $MNT_ARG {{container}} <<EOF
     export PATH=/lus/flare/projects/neutrinoGPU/scisoft/larsoft/gcc/v12_1_0/Linux64bit+3.10-2.17/libexec/gcc/x86_64-pc-linux-gnu/12.1.0:\$PATH
     echo "Products setup!"
     # get the fcls
+    FCL_LIST=\$(sed -n -e 's/.*-c\ \(.*fcl\).*/\\1/p' <( echo "{{cmd}}" ))
+    echo \${{{{FCL_LIST[@]}}}}
     {FIND_FCL_CONTAINER}
-    fhicl_from_env=\$(find_fcl {{fhicl}})
-    if [ -f \$fhicl_from_env ]; then
-        cp \$fhicl_from_env {{workdir}}/
-    else
-        echo "Could not find fcl! Expect subsequent commands to fail."
-    fi
-    export LOCAL_FCL=\$(basename {{fhicl}})
+    for fcl in \${{{{FCL_LIST[@]}}}}; do
+        fhicl_from_env=\$(find_fcl \$fcl)
+        echo "fhicl_from_env=\$fhicl_from_env"
+        if [ -f \$fhicl_from_env ]; then
+            cp \$fhicl_from_env {{workdir}}/
+        else
+            echo "Could not find fcl \$fcl! Expect subsequent commands to fail."
+        fi
+    done
+    # export LOCAL_FCL=\$(basename {{fhicl}})
     {{pre_job_hook}}
 
-    echo "fhicl_from_env=\$fhicl_from_env"
-    echo "LOCAL_FCL=\$LOCAL_FCL"
+    # echo "LOCAL_FCL=\$LOCAL_FCL"
 
     set -e
-    # Add an optional input file:
-    export lar_cmd="{{cmd}}"
-    echo \$lar_cmd
     echo "About to run larsoft"
-    eval \$lar_cmd
+    {{cmd}}
     set +e
 EOF
 
