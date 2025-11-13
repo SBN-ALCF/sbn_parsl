@@ -245,15 +245,15 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
         dummy_input = last_file[0][0]
     input_arg = [str(fcl), dummy_input] + input_files + depends
 
-    if self.combine:
-        # don't submit work, just forward commands to the next task
-        return [[context.output_file], input_files + depends, cmd]
-
     # metadata & fcl manipulation
     mg_cmd = fcl_cmd_func(context)
     if meta is not None:
         mg_cmd += '\n' + \
                 meta.run_cmd(context.output_file.name + '.json', os.path.basename(fcl), check_exists=False)
+
+    if self.combine:
+        # don't submit work, just forward commands to the next task
+        return [[context.output_file], input_files + depends, mg_cmd + '\n' + cmd]
 
 
     future = future_func(
