@@ -15,9 +15,9 @@ echo \"$(date +%s)\": {
 
 # get lar PIDs & fcl name being run
 echo "\"lar\":{"
-ps -C lar -o %cpu=,pid=,args= | grep -v "defunct" \
-    | sed -r 's/^\s*(([0-9]+\.?[0-9]*)|([0-9]*\.[0-9]+))\s*.*\s([0-9]+).*\s(.*\.fcl).*/\4 \5 \1/g' \
-    | awk '{printf("\"%d\":{\"fcl\": \"%s\", \"cpu\": %.1f}\n", $1, $2, $3)}' \
+ps -ww -C lar -o rss,%cpu=,pid=,args= | grep -v "defunct" \
+    | sed -r 's/(.*)lar\s+-c(.*\.fcl).*/\1 \2/g' | grep -e 'fcl$' \
+    | awk '{printf("\"%d\":{\"fcl\": \"%s\", \"cpu\": %.1f, \"rss\": %.1f}\n", $3, $4, $2, $1)}' \
     | paste -sd ","
 echo "},"
 
@@ -27,6 +27,7 @@ mpstat -P ALL -o JSON 10 1 | tr '\n' '\r' | sed 's/^.\(.*\)..$/\1/mg'
 # memory
 free -k | awk '{if($1=="Mem:"){printf(",\"mem\":{\"total\":%d,\"used\":%d,\"free\":%d}\n", $2, $3, $4)}}'
 
+if [ 1 -eq 0 ]; then
 # disk
 echo ",\"disk\":"
 jq '.sysstat.hosts[0].statistics[0].disk' <(iostat -o JSON)
@@ -39,5 +40,6 @@ nvidia-smi --query-gpu=pci.bus_id,name,utilization.gpu,memory.used,memory.total 
         printf("\"%s\":{\"name\": \"%s\", \"gpu\": %.1f, \"mem\":%d, \"total_mem\": %d}\n", $1, $2, $3, $4, $5)
     }' | paste -sd,
 echo "}"
+fi
 
 echo "}}"

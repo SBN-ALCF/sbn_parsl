@@ -22,7 +22,7 @@ from sbn_parsl.utils import hash_name
 
 
 @bash_app(cache=False)
-def fcl_future(workdir, stdout, stderr, template, cmd, larsoft_opts, inputs=[], outputs=[], pre_job_hook='', post_job_hook=''):
+def fcl_future(workdir, stdout, stderr, template, cmd, larsoft_opts, inputs=[], outputs=[], pre_job_hook='', post_job_hook='', parsl_resource_specification={}):
     """Return formatted bash script which produces each future when executed."""
     return template.format(
         fhicl=inputs[0],
@@ -224,26 +224,26 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     executor._stage_counter += 1
     context.output_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # clean any input files that are in /tmp after this stage completes
+    rm_cmd = '\n'.join([f'rm {f}' for f in context.input_files if f.resolve().parts[1] == 'tmp'])
+
     cmd = '\n'.join([
         f'mkdir -p {run_dir}',
         f'mkdir -p {context.output_file.parent}',
         f'cd {run_dir}',
-        lar_cmd_func(context)
+        lar_cmd_func(context),
+        rm_cmd
     ])
     # lar_cmd_func(self, fcl, input_files_user, output_file, lar_opts)
 
     if parent_cmd:
         cmd = '\n'.join([parent_cmd, cmd])
 
-    # print(fcl)
-    # print(input_files)
-    # print(depends)
-    # print(cmd)
-
-    dummy_input = None
+    dummy_input = []
     if last_file is not None:
-        dummy_input = last_file[0][0]
-    input_arg = [str(fcl), dummy_input] + input_files + depends
+        # dummy input is a list containing a parsl datafuture
+        dummy_input = last_file[0]
+    input_arg = [str(fcl)] + dummy_input + input_files + depends
 
     # metadata & fcl manipulation
     mg_cmd = fcl_cmd_func(context)
@@ -253,8 +253,21 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
 
     if self.combine:
         # don't submit work, just forward commands to the next task
-        return [[context.output_file], input_files + depends, mg_cmd + '\n' + cmd]
+        return [[context.output_file], dummy_input + input_files + depends, mg_cmd + '\n' + cmd]
 
+    # this tells Parsl to prioritize stages from a single workflow before
+    # stages from later workflows. E.g., if two workflows each have stages A,
+    # B, C, then on one worker, the run order will be A1 B1 C1 A2 B2 C2 instead
+    # of A1 A2 B1 B2 C1 C2. There are two reasons: First, this means we get
+    # final outputs ("C" stages) earlier, which can be helpful for debugging.
+    # Second is performance: If we finish an entire workflow, we no longer have
+    # to keep its tasks in memory, and restarts of the main program will be
+    # faster thanks to workflow caching.  Note this covers a slightly different
+    # case than the workflow generator order, which submits tasks with no
+    # dependencies first to avoid having tasks in memory that can't run. Here,
+    # we specifically deal with the case where all tasks are submitted and parsl has
+    # a choice between stages of different depths to submit
+    resource_spec = {'priority': self.workflow_id}
 
     future = future_func(
         workdir = str(run_dir),
@@ -265,7 +278,8 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
         larsoft_opts = executor.larsoft_opts,
         inputs = input_arg,
         outputs = [File(str(context.output_file))],
-        pre_job_hook = mg_cmd
+        pre_job_hook = mg_cmd,
+        parsl_resource_spec=resource_spec
     )
 
     _transfer_ids(self, future.outputs[0])
@@ -369,7 +383,7 @@ def output_filepath_icarus_mc(context: RunContext) -> pathlib.Path:
             str(context.stage.stage_type.name), skip_str, context.input_files[0].name,
         ]))
     else:
-        output_filename = os.path.splittext(context.input_files[0].name)[0] + '.flat.caf.root'
+        output_filename = os.path.splitext(context.input_files[0].name)[0] + '.flat.caf.root'
 
     return context.out_dir / pathlib.Path(context.stage.stage_type.name, \
             f'{context.stage.workflow_id // 1000:06d}', \

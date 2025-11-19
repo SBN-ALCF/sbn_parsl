@@ -266,7 +266,7 @@ class Stage:
             raise RuntimeError(f'Attempt to run stage {self._stage_type} while it still holds references to its parents')
 
         if StageProperty._SUPER in self._stage_type.properties:
-            print('Congratulations, you ran all the stages!') 
+            print(f'Congratulations, you ran all the stages in workflow {self.workflow_id}!')
             self._complete = True
             return
 
@@ -576,6 +576,7 @@ class WorkflowExecutor:
         db_suffix = hash_name(json.dumps(hash_settings, sort_keys=True), sep='')
 
         db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
+        print(f'Cache will be saved to {db_file}')
         db_file.parent.mkdir(exist_ok=True)
         self._disk_db = sqlite3.connect(str(db_file))
         self._mem_db = sqlite3.connect(":memory:")

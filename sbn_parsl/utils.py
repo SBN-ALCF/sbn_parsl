@@ -75,7 +75,7 @@ def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: boo
                 'export TMPDIR=/tmp/',
                 'module load frameworks',
                 f'source ~/.venv/{venv_name}/bin/activate',
-                'export ZEX_NUMBER_OF_CCS=0:4,1:4,2:4,3:4,4:4,5:4,6:4,7:4,8:4,9:4,10:4,11:4'
+                # 'export ZEX_NUMBER_OF_CCS=0:4,1:4,2:4,3:4,4:4,5:4,6:4,7:4,8:4,9:4,10:4,11:4'
             ]
         else:
             raise RuntimeError(f"Don't know how to load virtual environments on machine {hostname}")
@@ -133,17 +133,22 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
 
 def create_executor_by_hostname(user_opts, system_opts, provider):
     from parsl import HighThroughputExecutor
+    max_workers_per_node = user_opts.get("max_workers_per_node", user_opts["cpus_per_node"])
+    cpu_affinity = system_opts['cpu_affinity']
+    if max_workers_per_node != user_opts["cpus_per_node"] and system_opts["hostname"] == "aurora":
+        cpu_affinity = aurora_affinity(ncpus=max_workers_per_node)
+
     return HighThroughputExecutor(
         label="htex",
         heartbeat_period=15,
         heartbeat_threshold=120,
         worker_debug=True,
-        max_workers_per_node=user_opts["cpus_per_node"],
+        max_workers_per_node=max_workers_per_node,
         cores_per_worker=user_opts["cores_per_worker"],
         available_accelerators=system_opts['available_accelerators'],
         address=address_by_interface("bond0"),
         address_probe_timeout=120,
-        cpu_affinity=system_opts['cpu_affinity'],
+        cpu_affinity=cpu_affinity,
         prefetch_capacity=0,
         provider=provider,
         block_error_handler=False,
@@ -198,7 +203,7 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
             strategy=user_opts.get("strategy", "none"),
             retries=user_opts.get("retries", 5),
             app_cache=True,
-            initialize_logging=True,
+            initialize_logging=False,
             # monitoring=MonitoringHub(
             #     hub_address=address_by_interface('bond0'),
             #     monitoring_debug=False,
