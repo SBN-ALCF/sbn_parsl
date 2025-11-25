@@ -19,7 +19,8 @@ POLARIS_OPTS = {
     'scheduler': '#PBS -l filesystems=home:grand:eagle\n#PBS -l place=scatter',
     'launcher': '--depth=64 --ppn 1',
     'cpu_affinity': 'alternating',
-    'available_accelerators': 32
+    'available_accelerators': 32,
+    'pbs': 'filesystems=home:grand:eagle'
 }
 
 
@@ -45,7 +46,8 @@ AURORA_OPTS = {
     'scheduler': '#PBS -l filesystems=home:flare',
     'launcher': '--ppn 1',
     'cpu_affinity': aurora_affinity(per_worker=1),
-    'available_accelerators': 102
+    'available_accelerators': 102,
+    'pbs': 'filesystems=home:flare'
 }
     # 'available_accelerators': list(itertools.chain.from_iterable([[f'{gid}.{tid}'] * 4 for gid in range(6) for tid in range(2)]))
 

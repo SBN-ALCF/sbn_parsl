@@ -15,6 +15,7 @@ cd ${OUTDIR}
 
 # exclude this node (where the driver program runs) from the available nodes
 sort -u $PBS_NODEFILE | grep -v $(hostname) > ${OUTDIR}/hostfile.noexec
+export $PBS_NODEFILE=${OUTDIR}/hostfile.noexec
 
 JOBNAME="local"
 cat << EOL > cmd_$JOBNAME.sh
@@ -22,7 +23,7 @@ export TMPDIR=/tmp/
 module load frameworks
 source ~/.venv/sbn/bin/activate
 export PATH=/opt/cray/pals/1.4/bin:\${PATH}
-python ~/sbn_parsl/workflows/icarus_mc.py ~/sbn_parsl/settings/icarus/settings_mc_icarus_container_stage1_caf.json --local -o /lus/flare/projects/neutrinoGPU/twester/local_test --hostfile=${OUTDIR}/hostfile.noexec
+python ~/sbn_parsl/workflows/icarus_mc.py ~/sbn_parsl/settings/icarus/settings_mc_icarus_container_stage1_caf.json --local -o /lus/flare/projects/neutrinoGPU/twester/local_test
 EOL
 chmod u+x cmd_$JOBNAME.sh
 
