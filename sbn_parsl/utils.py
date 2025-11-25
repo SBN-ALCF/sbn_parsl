@@ -101,6 +101,10 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
     else:
         worker_init = _worker_init(mps=mps, venv_name='sbn')
 
+    # extra command to change directory to run_dir (prevent home from filling up with junk temp files)
+    rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
+    cwd_cmd = f'mkdir -p {rundir_path}&&cd {rundir_path}'
+
     if local:
         # user has allocated the job. Just launch
         return LocalProvider(
@@ -108,13 +112,10 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
             init_blocks     = user_opts.get("init_blocks", 1),
             max_blocks      = user_opts.get("max_blocks", 1),
             launcher        = MpiExecLauncher(bind_cmd="--cpu-bind", overrides=system_opts['launcher']),
-            worker_init     = worker_init + '&&export PATH=/opt/cray/pals/1.4/bin:${PATH}'
+            worker_init     = '&&'.join([cwd_cmd, worker_init, 'export PATH=/opt/cray/pals/1.4/bin:${PATH}'])
         )
 
     # let parsl allocate the job
-    # extra command to change directory to run_dir (prevent home from filling up with junk temp files)
-    rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
-    cwd_cmd = f'mkdir -p {rundir_path}&&cd {rundir_path}'
     return PBSProProvider(
         account         = user_opts["allocation"],
         queue           = user_opts.get("queue", "debug"),
@@ -203,7 +204,7 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
             strategy=user_opts.get("strategy", "none"),
             retries=user_opts.get("retries", 5),
             app_cache=True,
-            initialize_logging=False,
+            initialize_logging=True,
             # monitoring=MonitoringHub(
             #     hub_address=address_by_interface('bond0'),
             #     monitoring_debug=False,

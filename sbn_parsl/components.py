@@ -267,7 +267,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # dependencies first to avoid having tasks in memory that can't run. Here,
     # we specifically deal with the case where all tasks are submitted and parsl has
     # a choice between stages of different depths to submit
-    resource_spec = {'priority': self.workflow_id}
+    resource_spec = {} #'priority': self.workflow_id}
 
     future = future_func(
         workdir = str(run_dir),
@@ -279,7 +279,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
         inputs = input_arg,
         outputs = [File(str(context.output_file))],
         pre_job_hook = mg_cmd,
-        parsl_resource_spec=resource_spec
+        parsl_resource_specification=resource_spec
     )
 
     _transfer_ids(self, future.outputs[0])
