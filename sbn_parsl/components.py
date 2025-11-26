@@ -305,12 +305,12 @@ def build_modify_fcl_cmd_sbnd_mc(context: RunContext) -> str:
         # find the first component in the output file path with "reco1" & replace with "larcv"
         larcv_dir = pathlib.Path(*[p if p != 'reco1' else 'larcv' for p in context.output_file.parent.parts])
         larcv_dir.mkdir(parents=True, exist_ok=True)
-        larcv_filename = larcv_dir / f"larcv_{context.input_files[0].name}"
+        larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
 
         fcl_cmd = '\n'.join([
             fcl_cmd,
-            f'''echo "physics.analyzers.superaMC.out_filename: \\"{str(larcv_filename)}\\"" >> {fcl_name}''',
-            f'''echo "physics.analyzers.superaMC.unique_filename: false" >> {fcl_name}'''
+            f'''echo "physics.analyzers.supera.out_filename: \\"{str(larcv_filename)}\\"" >> {fcl_name}''',
+            f'''echo "physics.analyzers.supera.unique_filename: false" >> {fcl_name}'''
         ])
 
     return fcl_cmd
