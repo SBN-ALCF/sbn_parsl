@@ -540,7 +540,12 @@ class WorkflowExecutor:
         self.run_opts = settings['run']
         self.output_dir = pathlib.Path(self.run_opts['output'])
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
         self.max_futures = self.run_opts['max_futures']
+        self._future_limit = True
+        if self.max_futures < 0:
+            self._future_limit = False
+
         self.name_salt = str(settings['run']['seed']) + str(self.output_dir)
 
         self.fcl_dir = None
@@ -673,8 +678,8 @@ class WorkflowExecutor:
                 self._workflow_counters[wfs[idx]._id] = {'done': 0, 'nfinal': wfs[idx].n_final_stages}
 
             # rate-limit the number of concurrent futures to avoid using too
-            # much memory on login nodes
-            while len(self.futures) > self.max_futures:
+            # much memory on login nodes (set to negative number to disable)
+            while len(self.futures) > self.max_futures and self._future_limit:
                 self.get_task_results()
                 # still too many?
                 if len(self.futures) > self.max_futures:

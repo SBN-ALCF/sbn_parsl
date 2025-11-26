@@ -34,7 +34,7 @@ def entry_point(argv, wfe_class):
 
     runinfo_dir = pathlib.Path(settings['run']['output']) / 'runinfo'
     user_opts['run_dir'] = str(runinfo_dir)
-    runinfo_dir.mkdir(exist_ok=True)
+    runinfo_dir.mkdir(parents=True, exist_ok=True)
 
     cycle = -1
     if args.cycle is not None:
@@ -52,6 +52,9 @@ def entry_point(argv, wfe_class):
             hostfile_cmd = ''
             if user_opts['nodes_per_block'] > 1:
                 hostfile_cmd = HOSTFILE_CMD_EXCLUDE_SELF
+            
+            submit_script_dir = cmd_dir / 'submit_scripts'
+            submit_script_dir.mkdir(parents=True, exist_ok=True)
 
             template = LOCAL_TEMPLATE.format(
                 job_name=job_name,
@@ -59,8 +62,8 @@ def entry_point(argv, wfe_class):
                 out_dir=settings['run']['output'],
                 cmd_dir=str(cmd_dir),
                 settings=args.settings,
-                stdout=str(runinfo_dir / 'submit_scripts' / f'{job_name}.stdout'),
-                stderr=str(runinfo_dir / 'submit_scripts' / f'{job_name}.stderr'),
+                stdout=str(submit_script_dir / f'{job_name}.stdout'),
+                stderr=str(submit_script_dir / f'{job_name}.stderr'),
                 walltime=user_opts['walltime'],
                 nodes_per_block=user_opts['nodes_per_block'],
                 hostfile_cmd=hostfile_cmd
@@ -115,16 +118,18 @@ cat << EOL > cmd_$JOBNAME.sh
 export TMPDIR=/tmp/
 module load frameworks
 source ~/.venv/sbn/bin/activate
-export PATH=/opt/cray/pals/1.4/bin:${{{{PATH}}}}
+export PATH=/opt/cray/pals/1.4/bin:\${{{{PATH}}}}
+
 python {{workflow}} {{settings}} --local -o {{out_dir}}
 EOL
 chmod u+x cmd_$JOBNAME.sh
 
-./cmd_$JOBNAME.sh > {{cmd_dir}}/sbn_parsl.log
+# line buffer to get logs faster
+stdbuf -oL ./cmd_$JOBNAME.sh > {{cmd_dir}}/sbn_parsl.log
 
 [[ "1" == "1" ]] && echo "All done"
 '''
 
 HOSTFILE_CMD_EXCLUDE_SELF = r'''sort -u $PBS_NODEFILE | grep -v $(hostname) > $OUTDIR/hostfile.noexec
-export $PBS_NODEFILE=$OUTDIR/hostfile.noexec
+export PBS_NODEFILE=$OUTDIR/hostfile.noexec
 '''

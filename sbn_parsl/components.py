@@ -297,8 +297,41 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
 # 
 # -------
 
+def build_modify_fcl_cmd_sbnd_mc(context: RunContext) -> str:
+    """Normal MC fcl command + superaMC renaming"""
+    fcl_cmd = build_modify_fcl_cmd(context)
+    fcl_name = context.fcl.name
+    if context.stage.stage_type == DefaultStageTypes.RECO1:
+        # find the first component in the output file path with "reco1" & replace with "larcv"
+        larcv_dir = pathlib.Path(*[p if p != 'reco1' else 'larcv' for p in context.output_file.parent.parts])
+        larcv_dir.mkdir(parents=True, exist_ok=True)
+        larcv_filename = larcv_dir / f"larcv_{context.input_files[0].name}"
 
-mc_runfunc_sbnd=functools.partial(larsoft_runfunc)
+        fcl_cmd = '\n'.join([
+            fcl_cmd,
+            f'''echo "physics.analyzers.superaMC.out_filename: \\"{str(larcv_filename)}\\"" >> {fcl_name}''',
+            f'''echo "physics.analyzers.superaMC.unique_filename: false" >> {fcl_name}'''
+        ])
+
+    return fcl_cmd
+
+def build_larsoft_cmd_drop_reco2(context: RunContext) -> str:
+    """variation of larsoft command to add -T flag for calibration ntuple
+    output path when reco2 is skipped. Assumes reco1 is kept (not written to /tmp)"""
+    # caf stage does not get an output argument
+    lar_cmd = build_larsoft_cmd(context)
+    if context.stage.stage_type == DefaultStageTypes.RECO2:
+        calib_dir = pathlib.Path(*[p if p != 'reco1' else 'calib_ntuple' for p in context.input_files[0].parent.parts])
+        calib_dir.mkdir(parents=True, exist_ok=True)
+        calib_filename = calib_dir / f"hists_{context.input_files[0].name}"
+        lar_cmd = ' '.join([
+            lar_cmd,
+            f'-T {str(calib_filename)}'
+        ])
+
+    return lar_cmd
+
+mc_runfunc_sbnd=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_drop_reco2, fcl_cmd_func=build_modify_fcl_cmd_sbnd_mc)
 
 def build_larsoft_cmd_sbnd_data(context: RunContext) -> str:
     """Build larsoft command with input & output flags"""
