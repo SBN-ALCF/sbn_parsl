@@ -104,7 +104,10 @@ def build_larsoft_cmd(context: RunContext) -> str:
             ' '.join([f'-s {str(file)}' for file in context.input_files])
 
     # stages after gen: don't limit number of events; use all events from all input files
-    nevts = f' --nevts={context.lar_args["nevts"]}'
+    nevts = f' --nevts=-1'
+    if context.stage.stage_type == DefaultStageTypes.GEN:
+        nevts = f' --nevts={context.lar_args["nevts"]}'
+
     nskip = ''
     try:
         nskip = f' --nskip={context.lar_args["nskip"]}'
@@ -160,7 +163,6 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     Extra kwargs will override larsoft options
     """
 
-    run_dir.mkdir(parents=True, exist_ok=True)
     lar_opts = executor.larsoft_opts.copy()
     lar_opts.update(kwargs)
 
@@ -181,7 +183,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     input_files = [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files]
 
     depends = list(itertools.chain.from_iterable(inputs[1::3]))
-    parent_cmd = '&&'.join(pc for pc in inputs[2::3] if pc != '')
+    parent_cmd = '\n'.join(pc for pc in inputs[2::3] if pc != '')
 
     # create a context object for our components
     # convert datafutures so user-code doesn't have to handle Parsl types
@@ -222,7 +224,6 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
         return [[context.output_file], [], '']
 
     executor._stage_counter += 1
-    context.output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # clean any input files that are in /tmp after this stage completes
     rm_cmd = '\n'.join([f'rm {f}' for f in context.input_files if f.resolve().parts[1] == 'tmp'])
@@ -304,10 +305,10 @@ def build_modify_fcl_cmd_sbnd_mc(context: RunContext) -> str:
     if context.stage.stage_type == DefaultStageTypes.RECO1:
         # find the first component in the output file path with "reco1" & replace with "larcv"
         larcv_dir = pathlib.Path(*[p if p != 'reco1' else 'larcv' for p in context.output_file.parent.parts])
-        larcv_dir.mkdir(parents=True, exist_ok=True)
         larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
 
         fcl_cmd = '\n'.join([
+            f'mkdir -p {str(larcv_dir)}',
             fcl_cmd,
             f'''echo "physics.analyzers.supera.out_filename: \\"{str(larcv_filename)}\\"" >> {fcl_name}''',
             f'''echo "physics.analyzers.supera.unique_filename: false" >> {fcl_name}'''
@@ -322,11 +323,15 @@ def build_larsoft_cmd_drop_reco2(context: RunContext) -> str:
     lar_cmd = build_larsoft_cmd(context)
     if context.stage.stage_type == DefaultStageTypes.RECO2:
         calib_dir = pathlib.Path(*[p if p != 'reco1' else 'calib_ntuple' for p in context.input_files[0].parent.parts])
-        calib_dir.mkdir(parents=True, exist_ok=True)
         calib_filename = calib_dir / f"hists_{context.input_files[0].name}"
         lar_cmd = ' '.join([
             lar_cmd,
             f'-T {str(calib_filename)}'
+        ])
+        lar_cmd = '\n'.join([
+            'rm -f standard_reco2_sbnd.fcl',
+            f'mkdir -p {str(calib_dir)}',
+            lar_cmd
         ])
 
     return lar_cmd

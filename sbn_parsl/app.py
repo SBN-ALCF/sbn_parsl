@@ -125,7 +125,7 @@ EOL
 chmod u+x cmd_$JOBNAME.sh
 
 # line buffer to get logs faster
-stdbuf -oL ./cmd_$JOBNAME.sh > {{cmd_dir}}/sbn_parsl.log
+./cmd_$JOBNAME.sh > {{cmd_dir}}/sbn_parsl.log
 
 [[ "1" == "1" ]] && echo "All done"
 '''
