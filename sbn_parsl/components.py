@@ -226,7 +226,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     executor._stage_counter += 1
 
     # clean any input files that are in /tmp after this stage completes
-    rm_cmd = '\n'.join([f'rm {f}' for f in context.input_files if f.resolve().parts[1] == 'tmp'])
+    rm_cmd = '\n'.join([f'rm {f}' for f in context.input_files if str(f).startswith('/tmp/')])
 
     cmd = '\n'.join([
         f'mkdir -p {run_dir}',
