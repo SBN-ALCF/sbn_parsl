@@ -192,11 +192,11 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # TODO this mkdir must be run on the worker!
     context = RunContext(
         stage=self,
-        input_files=[pathlib.Path(f.filename) \
+        input_files=[pathlib.PurePosixPath(f.filename) \
                 if isinstance(f, parsl.app.futures.DataFuture) \
-                else pathlib.Path(f) for f in input_files],
+                else pathlib.PurePosixPath(f) for f in input_files],
         out_dir = executor.output_dir if not self.combine else pathlib.Path('/tmp'),
-        fcl=pathlib.Path(fcl),
+        fcl=pathlib.PurePosixPath(fcl),
         label=label,
         lar_args=lar_opts,
         salt=executor.name_salt,
@@ -207,7 +207,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     if self.stage_type != DefaultStageTypes.GEN:
         if not isinstance(inputs[0][0], parsl.app.futures.DataFuture):
             if not isinstance(inputs[0][0], pathlib.Path):
-                inputs[0][0] = pathlib.Path(inputs[0][0])
+                inputs[0][0] = pathlib.PurePosixPath(inputs[0][0])
             first_file_name = inputs[0][0].name
         else:
             first_file_name = inputs[0][0].filename
@@ -304,7 +304,7 @@ def build_modify_fcl_cmd_sbnd_mc(context: RunContext) -> str:
     fcl_name = context.fcl.name
     if context.stage.stage_type == DefaultStageTypes.RECO1:
         # find the first component in the output file path with "reco1" & replace with "larcv"
-        larcv_dir = pathlib.Path(*[p if p != 'reco1' else 'larcv' for p in context.output_file.parent.parts])
+        larcv_dir = pathlib.PurePosixPath(*[p if p != 'reco1' else 'larcv' for p in context.output_file.parent.parts])
         larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
 
         fcl_cmd = '\n'.join([
@@ -322,7 +322,7 @@ def build_larsoft_cmd_drop_reco2(context: RunContext) -> str:
     # caf stage does not get an output argument
     lar_cmd = build_larsoft_cmd(context)
     if context.stage.stage_type == DefaultStageTypes.RECO2:
-        calib_dir = pathlib.Path(*[p if p != 'reco1' else 'calib_ntuple' for p in context.input_files[0].parent.parts])
+        calib_dir = pathlib.PurePosixPath(*[p if p != 'reco1' else 'calib_ntuple' for p in context.input_files[0].parent.parts])
         calib_filename = calib_dir / f"hists_{context.input_files[0].name}"
         lar_cmd = ' '.join([
             lar_cmd,
