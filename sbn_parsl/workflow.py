@@ -674,7 +674,13 @@ class WorkflowExecutor:
                     continue
 
                 # wrapper calls the user's setup_single_workflow and sets its ID
-                wfs[idx] = self.setup_single_workflow_wrapper(idx, file_slice, last_files[idx % nworkers])
+                this_wf = self.setup_single_workflow_wrapper(idx, file_slice, last_files[idx % nworkers])
+                # user can return None from setup_single_workflow to skip based on inputs
+                if this_wf is None:
+                    skip_idx.add(idx)
+                    continue
+
+                wfs[idx] = this_wf
                 self._workflow_counters[wfs[idx]._id] = {'done': 0, 'nfinal': wfs[idx].n_final_stages}
 
             # rate-limit the number of concurrent futures to avoid using too
@@ -758,8 +764,9 @@ class WorkflowExecutor:
     def setup_single_workflow_wrapper(self, iteration: int, inputs=None, last_file=None):
         """Wrap setting the workflow ID so that the user doesn't have to do it."""
         wf = self.setup_single_workflow(iteration, inputs, last_file)
-        wf._id = iteration
-        wf._finalize()
+        if wf is not None:
+            wf._id = iteration
+            wf._finalize()
         return wf
 
     def setup_single_workflow(self, iteration: int, inputs=None, last_file=None):
