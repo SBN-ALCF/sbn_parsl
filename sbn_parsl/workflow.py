@@ -28,6 +28,7 @@ import os
 import sys
 import json
 import time
+import copy
 from types import MethodType
 import itertools
 import pathlib
@@ -575,9 +576,10 @@ class WorkflowExecutor:
         # avoid submitting the task entirely
 
         # DB file is unique to settings used for the workflow, modulo the queue
-        # settings which could change on re-runs
-        hash_settings = settings.copy()
+        # settings and number of subruns which could change on re-runs
+        hash_settings = copy.deepcopy(settings)
         del hash_settings['queue']
+        del hash_settings['run']['nsubruns']
         db_suffix = hash_name(json.dumps(hash_settings, sort_keys=True), sep='')
 
         db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'

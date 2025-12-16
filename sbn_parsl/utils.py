@@ -4,6 +4,7 @@ import hashlib
 import itertools
 
 from parsl.config import Config
+from parsl.dataflow.memoization import BasicMemoizer
 
 from parsl.addresses import address_by_interface
 from parsl.utils import get_all_checkpoints
@@ -199,13 +200,14 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
     executor = create_executor_by_hostname(user_opts, system_opts, provider)
     checkpoints = get_all_checkpoints(user_opts["run_dir"])
     config = Config(
-            checkpoint_mode='task_exit',
+            memoizer=BasicMemoizer(
+                checkpoint_mode='task_exit',
+                checkpoint_files=checkpoints,
+            ),
             executors=[executor],
-            checkpoint_files=checkpoints,
             run_dir=user_opts["run_dir"],
             strategy=user_opts.get("strategy", "none"),
             retries=user_opts.get("retries", 5),
-            app_cache=True,
             initialize_logging=True,
             # monitoring=MonitoringHub(
             #     hub_address=address_by_interface('bond0'),
