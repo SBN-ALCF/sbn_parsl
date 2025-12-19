@@ -442,5 +442,36 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
 
     return fcl_cmd
 
-mc_runfunc_icarus=functools.partial(larsoft_runfunc, output_filename_func=output_filepath_icarus_mc, fcl_cmd_func=build_modify_fcl_cmd_icarus)
+
+def build_larsoft_cmd_icarus_overlay_mc(context: RunContext) -> str:
+    """Special larsoft command for icarus overlay MC: first stage is not "gen"
+    but we still want to use nevts and nskip flags"""
+    if context.stage.stage_type.name != 'overlay':
+        return build_larsoft_cmd(context)
+
+    nevts = f' --nevts=-1'
+    try:
+        nevts = f' --nevts={context.lar_args["nevts"]}'
+    except KeyError:
+        pass
+
+    nskip = ''
+    try:
+        nskip = f' --nskip={context.lar_args["nskip"]}'
+    except KeyError:
+        pass
+
+    output_file_arg_str = ''
+    if context.stage.stage_type != DefaultStageTypes.CAF:
+        output_file_arg_str = f'--output={str(context.output_file)}'
+
+    input_file_arg_str = ''
+    if context.input_files:
+        input_file_arg_str = \
+            ' '.join([f'-s {str(file)}' for file in context.input_files])
+
+    return f'lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
+
+mc_runfunc_icarus=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_icarus_overlay_mc, \
+                                    output_filename_func=output_filepath_icarus_mc, fcl_cmd_func=build_modify_fcl_cmd_icarus)
 data_runfunc_icarus=functools.partial(larsoft_runfunc, output_filename_func=output_filepath_icarus_data)

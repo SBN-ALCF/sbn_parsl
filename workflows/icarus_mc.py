@@ -22,22 +22,23 @@ OVERLAY = StageType('overlay')
 OVERLAY_WFM = StageType('overlay_wfm')
 
 
-class DecoderExecutor(WorkflowExecutor):
+class OverlayExecutor(WorkflowExecutor):
     """Execute a decoder workflow from user settings."""
     def __init__(self, settings: json):
         super().__init__(settings)
 
         self.meta = MetadataGenerator(settings['metadata'], self.fcls, defer_check=True)
         self.stage_order = [
-            DefaultStageTypes.DECODE,
             OVERLAY,
             DefaultStageTypes.G4,
             DefaultStageTypes.DETSIM,
+            DefaultStageTypes.DECODE,
             OVERLAY_WFM,
             DefaultStageTypes.STAGE0,
-            # DefaultStageTypes.STAGE1,
-            # DefaultStageTypes.CAF,
+            DefaultStageTypes.STAGE1,
+            DefaultStageTypes.CAF,
         ]
+
         # without this, workflow tries to make DefaultStageOrders out of
         # strings, but this fails since we added some custom ones
         self.fcls = { so: settings['fcls'][so.name] for so in self.stage_order }
@@ -49,6 +50,18 @@ class DecoderExecutor(WorkflowExecutor):
                 self.run_list = [int(l.strip()) for l in f.readlines()]
 
         self.rawdata_path = pathlib.Path(settings['workflow']['rawdata_path'])
+
+        # event splitting: e.g., 50 events/file split by 10 -> 5 events per task
+        self.max_events_per_file = int(settings['workflow']['events_per_file'])
+        self.events_per_split = int(settings['workflow']['events_per_split'])
+
+        # ceiling division
+        self._nsplits = -(self.max_events_per_file // -self.events_per_split)
+        if self._nsplits < 1:
+            self._nsplits = 1
+            self.max_events_per_file = -1
+        if self._nsplits > 1:
+            print(f'Using event splitting: {self.events_per_split} events per file, assuming {self.max_events_per_file} => {self._nsplits} splits')
 
     def file_generator(self):
         path_generators = [self.rawdata_path.rglob('*.root')]
@@ -63,46 +76,58 @@ class DecoderExecutor(WorkflowExecutor):
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
         runfunc_ = functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
                 meta=self.meta, executor=self, last_file=last_file)
-        '''
+        runfunc_no_meta = functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
+                meta=None, executor=self, last_file=last_file)
+        
         s = Stage(DefaultStageTypes.CAF)
         s.run_dir = get_subrun_dir(self.output_dir, iteration)
         s.runfunc = runfunc_
         workflow.add_final_stage(s)
-        '''
 
-        decode_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
-                meta=self.meta, executor=self, nevts=1, nskip=(i * 5)) for i in range(10)]
+        # set up larsoft runfuncs to skip & split
+        '''
+        input_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
+                meta=None, executor=self, nevts=self.events_per_split, nskip=(i * self.events_per_split)) \
+                for i in range(self._nsplits)]
+        '''
+        input_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
+                meta=None, executor=self, nevts=1, nskip=(i * self.events_per_split)) \
+                for i in range(self._nsplits)]
 
         for i, file in enumerate(rawdata_files):
-            for j in range(10):
-                # s_stage1 = Stage(DefaultStageTypes.STAGE1)
-                s_stage0 = Stage(DefaultStageTypes.STAGE0, runfunc=runfunc_)
+            for j in range(self._nsplits):
+                s_stage1 = Stage(DefaultStageTypes.STAGE1)
+                s_stage0 = Stage(DefaultStageTypes.STAGE0)
 
-                s_overlay_wfm = Stage(OVERLAY_WFM)
-                s_detsim = Stage(DefaultStageTypes.DETSIM)
-                s_g4 = Stage(DefaultStageTypes.G4)
+                s_overlay_wfm = Stage(OVERLAY_WFM, runfunc=runfunc_no_meta)
+                s_decode = Stage(DefaultStageTypes.DECODE, runfunc=runfunc_no_meta)
+                s_detsim = Stage(DefaultStageTypes.DETSIM, runfunc=runfunc_no_meta)
 
-                s_overlay = Stage(OVERLAY)
-                s_decode = Stage(DefaultStageTypes.DECODE, runfunc=decode_runfuncs[j])
+                s_g4 = Stage(DefaultStageTypes.G4, runfunc=runfunc_no_meta)
+                s_overlay = Stage(OVERLAY, runfunc=input_runfuncs[j])
 
-                # s_stage1.run_dir = get_subrun_dir(self.output_dir, iteration * self.files_per_subrun + i) / f'{j:03d}'
+                s_stage1.run_dir = get_subrun_dir(self.output_dir, iteration * self.files_per_subrun + i) / f'{j:03d}'
                 s_stage0.run_dir = get_subrun_dir(self.output_dir, iteration * self.files_per_subrun + i) / f'{j:03d}'
-                workflow.add_final_stage(s_stage0)
 
-                # s.add_parents(s_stage1, workflow.default_fcls)
-                # s_stage1.add_parents(s_stage0, workflow.default_fcls)
+                s.add_parents(s_stage1, workflow.default_fcls)
+                s_stage1.add_parents(s_stage0, workflow.default_fcls)
                 s_stage0.add_parents(s_overlay_wfm, workflow.default_fcls)
-                s_overlay_wfm.add_parents(s_detsim, workflow.default_fcls)
+                s_overlay_wfm.add_parents(s_decode, workflow.default_fcls)
+                s_decode.add_parents(s_detsim, workflow.default_fcls)
                 s_detsim.add_parents(s_g4, workflow.default_fcls)
                 s_g4.add_parents(s_overlay, workflow.default_fcls)
-                s_overlay.add_parents(s_decode, workflow.default_fcls)
 
-                s_decode.add_input_file(file)
+                s_overlay.add_input_file(file)
 
-                s_decode.combine = True
+                # combines stage1 with caf
+                # s_stage1.combine = True
+
+                # combines overlay with G4
                 s_overlay.combine = True
-                s_g4.combine = True
+
+                # combines detsim & decode with overlay_wfm
                 s_detsim.combine = True
+                s_decode.combine = True
 
         return workflow
 
@@ -113,4 +138,4 @@ def get_subrun_dir(prefix: pathlib.Path, subrun: int):
 
 
 if __name__ == '__main__':
-    entry_point(sys.argv, DecoderExecutor)
+    entry_point(sys.argv, OverlayExecutor)
