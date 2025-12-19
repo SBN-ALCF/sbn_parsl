@@ -1,7 +1,7 @@
 import pytest
 import pathlib
 
-from sbnd_parsl.utils import create_provider_by_hostname, subrun_dir
+from sbn_parsl.utils import create_provider_by_hostname, subrun_dir
 
 
 def test_create_provider():

@@ -28,6 +28,7 @@ import os
 import sys
 import json
 import time
+import copy
 from types import MethodType
 import itertools
 import pathlib
@@ -39,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 from enum import Enum, Flag, auto
 from typing import List, Tuple, Dict, Optional, Callable
+
+from sbn_parsl.utils import hash_name
 
 
 class NoInputFileException(Exception):
@@ -264,7 +267,7 @@ class Stage:
             raise RuntimeError(f'Attempt to run stage {self._stage_type} while it still holds references to its parents')
 
         if StageProperty._SUPER in self._stage_type.properties:
-            print('Congratulations, you ran all the stages!') 
+            print(f'Congratulations, you ran all the stages in workflow {self.workflow_id}!')
             self._complete = True
             return
 
@@ -306,7 +309,7 @@ class Stage:
 
         for s in stages:
             if s.stage_type != self.parent_type:
-                raise StageAncestorException(f"Tried to add stage of type {s.stage_type} as a parent to a stage with type {self.stage_type}")
+                raise StageAncestorException(f"Tried to add stage of type {s.stage_type.name} as a parent to a stage with type {self.stage_type.name}")
             if s.workflow_id is None:
                 s.workflow_id = self.workflow_id
             if s.stage_id is None:
@@ -402,7 +405,6 @@ def run_stage(stage: Stage, fcls: Optional[Dict]=None):
     while stage.has_parents():
         try:
             next(stage.get_next_task())
-            print('here', stage.combine)
             if not stage.combine:
                 yield
         except StopIteration:
@@ -539,7 +541,13 @@ class WorkflowExecutor:
         self.run_opts = settings['run']
         self.output_dir = pathlib.Path(self.run_opts['output'])
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
         self.max_futures = self.run_opts['max_futures']
+        self._future_limit = True
+        if self.max_futures < 0:
+            self._future_limit = False
+
+        self.name_salt = str(settings['run']['seed']) + str(self.output_dir)
 
         self.fcl_dir = None
         self.fcls = {}
@@ -560,12 +568,22 @@ class WorkflowExecutor:
         self._success_counter = 0
         self._fail_counter = 0
 
-        # file tracking with sqlite as files are created, write them to the
-        # database this allows us to check the database instead of the
-        # filesystem on workflow restarts. While Parsl does this generically
-        # for tasks, using the Parsl task cache requires actually submitting
-        # the task, whereas this check can avoid submitting the task entirely
-        db_file = self.output_dir / 'runinfo' / 'cmd' / 'file_cache.db'
+        # file tracking with sqlite
+        # as files are created, write them to the database. this allows us to
+        # check the database instead of the filesystem on workflow restarts.
+        # While Parsl does this generically for tasks, using the Parsl task
+        # cache requires actually submitting the task, whereas this check can
+        # avoid submitting the task entirely
+
+        # DB file is unique to settings used for the workflow, modulo the queue
+        # settings and number of subruns which could change on re-runs
+        hash_settings = copy.deepcopy(settings)
+        del hash_settings['queue']
+        del hash_settings['run']['nsubruns']
+        db_suffix = hash_name(json.dumps(hash_settings, sort_keys=True), sep='')
+
+        db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
+        print(f'Cache will be saved to {db_file}')
         db_file.parent.mkdir(exist_ok=True)
         self._disk_db = sqlite3.connect(str(db_file))
         self._mem_db = sqlite3.connect(":memory:")
@@ -658,12 +676,18 @@ class WorkflowExecutor:
                     continue
 
                 # wrapper calls the user's setup_single_workflow and sets its ID
-                wfs[idx] = self.setup_single_workflow_wrapper(idx, file_slice, last_files[idx % nworkers])
+                this_wf = self.setup_single_workflow_wrapper(idx, file_slice, last_files[idx % nworkers])
+                # user can return None from setup_single_workflow to skip based on inputs
+                if this_wf is None:
+                    skip_idx.add(idx)
+                    continue
+
+                wfs[idx] = this_wf
                 self._workflow_counters[wfs[idx]._id] = {'done': 0, 'nfinal': wfs[idx].n_final_stages}
 
             # rate-limit the number of concurrent futures to avoid using too
-            # much memory on login nodes
-            while len(self.futures) > self.max_futures:
+            # much memory on login nodes (set to negative number to disable)
+            while len(self.futures) > self.max_futures and self._future_limit:
                 self.get_task_results()
                 # still too many?
                 if len(self.futures) > self.max_futures:
@@ -737,13 +761,14 @@ class WorkflowExecutor:
         # sync the in-memory database with the disk one if we had any changes
         if npass > 0:
             self._mem_db.backup(self._disk_db)
-            self.futures = remaining_futures
+        self.futures = remaining_futures
 
     def setup_single_workflow_wrapper(self, iteration: int, inputs=None, last_file=None):
         """Wrap setting the workflow ID so that the user doesn't have to do it."""
         wf = self.setup_single_workflow(iteration, inputs, last_file)
-        wf._id = iteration
-        wf._finalize()
+        if wf is not None:
+            wf._id = iteration
+            wf._finalize()
         return wf
 
     def setup_single_workflow(self, iteration: int, inputs=None, last_file=None):

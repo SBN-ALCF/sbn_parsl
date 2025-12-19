@@ -1,14 +1,14 @@
 {
     "run": {
-        "output": "/lus/flare/projects/neutrinoGPU/twester/pds_detvar_test_comp",
+        "output": "your_output_dir",
         "fclpath": "",
         "nsubruns": 1,
         "max_futures": 60000,
-        "seed": 1234
+        "seed": 1234,
+        "files_per_subrun": 1
     },
     "workflow": {
-        "subruns_per_caf": 20,
-        "full_keep_fraction": 0.125
+	"rawdata_path": "/lus/flare/projects/neutrinoGPU/sbnd/data/018000/018400/018459"
     },
     "larsoft": {
         "container": "/lus/flare/projects/neutrinoGPU/containers/slf7.sif",
@@ -16,7 +16,7 @@
         "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft", 
         "version": "v10_06_00_04",
         "qual": "e26:prof",
-        "nevts": 50,
+        "nevts": 20,
         "experiment": "sbnd",
         "lar_args" : ""
     },
@@ -31,32 +31,18 @@
         "cpus_per_node": 102,
         "cores_per_worker": 1,
         "strategy": "simple",
-        "allocation": "14454",
+        "allocation": "neutrinoGPU::debug2",
 	"retries": 0
     },
     "fcls": {
-        "cv": {
-            "gen": "prodgenie_corsika_proton_rockbox_sbnd.fcl",
-            "g4": "standard_g4_rockbox_sbnd.fcl",
-            "detsim": "standard_detsim_sbnd.fcl",
-            "reco1": "standard_reco1_sbnd.fcl",
-            "reco2": "standard_reco2_sbnd.fcl",
-            "caf": "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl",
-            "scrub": "scrub_PDS_detsim_reco1.fcl"
-        },
-        "PMTGainFluct": {
-            "detsim": "standard_detsim_sbnd_PMTGainFluct.fcl"
-        },
-        "PMTHighNoise": {
-            "detsim": "standard_detsim_sbnd_PMTHighNoise.fcl"
-        },
-        "PMTLowEff": {
-            "detsim": "standard_detsim_sbnd_PMTLowEff.fcl"
-        }
+        "decode": "run_decoders_job.fcl",
+        "pot": "run_sbndbnbinfo_sbn.fcl",
+        "reco1": "reco1_data_dnnroi.fcl",
+        "reco2": "reco2_data.fcl",
+        "caf": "cafmakerjob_sbnd_data_sce_bnblight_dnnroi.fcl"
     },
     "metadata": {
         "exe": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh",
         "mdprojectversion": "v10_06_00_04"
     }
 }
-

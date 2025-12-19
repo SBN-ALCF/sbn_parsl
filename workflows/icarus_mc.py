@@ -2,8 +2,7 @@
 
 # This workflow runs the decoder on raw data files
 
-import sys, os
-import re
+import sys
 import json
 import time
 import pathlib
@@ -11,176 +10,35 @@ import functools
 import itertools
 from typing import Dict, List
 
-import parsl
-from parsl.data_provider.files import File
-from parsl.app.app import bash_app
-
-from sbnd_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor, \
+from sbn_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor, \
     DefaultStageTypes
-from sbnd_parsl.metadata import MetadataGenerator
-from sbnd_parsl.templates import CMD_TEMPLATE_SPACK, CMD_TEMPLATE_CONTAINER
-from sbnd_parsl.utils import create_default_useropts, create_parsl_config, \
-    hash_name
-from sbnd_parsl.dfk_hacks import apply_hacks
+from sbn_parsl.metadata import MetadataGenerator
+from sbn_parsl.components import mc_runfunc_icarus
+from sbn_parsl.templates import CMD_TEMPLATE_SPACK, CMD_TEMPLATE_CONTAINER
+from sbn_parsl.app import entry_point
 
 
 OVERLAY = StageType('overlay')
 OVERLAY_WFM = StageType('overlay_wfm')
 
 
-@bash_app(cache=True)
-def fcl_future(workdir, stdout, stderr, template, cmd, larsoft_opts, inputs=[], outputs=[], pre_job_hook='', post_job_hook=''):
-    """Return formatted bash script which produces each future when executed."""
-    return template.format(
-        fhicl=inputs[0],
-        workdir=workdir,
-        output=outputs[0],
-        input=inputs[1],
-        cmd=cmd,
-        **larsoft_opts,
-        pre_job_hook=pre_job_hook,
-        post_job_hook=post_job_hook,
-    )
-
-
-def runfunc(self, fcl, inputs, run_dir, executor, last_file=None, nevts=-1, nskip=0):
-    """Method bound to each Stage object and run during workflow execution."""
-
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    # unpack the "inputs" arg. Should be: [[list of input files], [list of dependencies], parent_cmd]
-    # the last two elements are specifically to allow combining stages
-    # careful: if the stage has multiple input files, must chain together all of the args
-    if self.stage_type == DefaultStageTypes.DECODE:
-        inputs = [inputs, [], '']
-
-    input_files = list(itertools.chain.from_iterable(inputs[0::3]))
-    depends = list(itertools.chain.from_iterable(inputs[1::3]))
-    parent_cmd = '&&'.join(pc for pc in inputs[2::3] if pc != '')
-
-    first_file_name = ''
-    if self.stage_type == DefaultStageTypes.DECODE:
-        # decode stage takes a string filename
-        first_file_name = input_files[0]
-    else:
-        if not isinstance(inputs[0][0], parsl.app.futures.DataFuture):
-            first_file_name = inputs[0][0].name
-        else:
-            # pathlib path
-            first_file_name = inputs[0][0].filename
-
-    if self.stage_type != DefaultStageTypes.CAF:
-        # from string or posixpath input
-        output_filename = '-'.join([
-            str(self.stage_type.name), f'{nskip:03d}', os.path.basename(first_file_name), 
-        ])
-    else:
-        output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.flat.caf.root'
-
-    # run_number_str = SBND_RAWDATA_REGEXP.match(first_file_name).groups()[0]
-    # output_dir = executor.output_dir / self.stage_type.name / run_number_str
-    # output_dir.mkdir(parents=True, exist_ok=True)
-
-    output_dir = executor.output_dir / self.stage_type.name / f'{executor.run_counter // 100:06d}'
-    executor.run_counter += 1
-    if self.combine:
-        # if we are combining, save this stage's result only on node-local disk
-        # output_dir.name gets the instance number for this task
-        # run_dir = pathlib.Path('/local/scratch') / run_dir.name
-        # output_dir = run_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        # save this result to filesystem (eagle). Make sure it exists
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-
-    output_file = output_dir / output_filename
-    output_file_arg_str = ''
-
-    if self.stage_type != DefaultStageTypes.CAF:
-        output_file_arg_str = f'--output {str(output_file)}'
-
-    if output_file.is_file():
-        print(f'Skipping {output_file}, already exists')
-        return [[output_file], [], '']
-
-    # output_filepath = output_dir / output_filename
-
-    input_file_arg_str = ''
-    dummy_input = None
-    if last_file is not None:
-        dummy_input = last_file[0][0]
-    input_arg = [str(fcl), dummy_input]
-
-    if inputs is not None:
-        input_file_arg_str = \
-            ' '.join([f'-s {str(file)}' if not isinstance(file, parsl.app.futures.DataFuture) else f'-s {str(file.filepath)}' for file in input_files])
-        input_arg += [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files] + depends
-
-    cmd = f'mkdir -p {run_dir} && cd {run_dir} && lar -c {fcl} {input_file_arg_str} {output_file_arg_str} --nevts={nevts} --nskip={nskip}'
-
-    if parent_cmd != '':
-        cmd = ' && '.join([parent_cmd, cmd])
-
-
-    if self.combine:
-        # don't submit work, just forward commands to the next task
-        # we need to forward this task's dependencies too
-        return [[output_file], input_files, cmd]
-
-    print(cmd)
-
-    mg_cmd = ''
-    if self.stage_type == OVERLAY:
-        mg_cmd = '\n'.join([mg_cmd,
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/grand/projects/neutrinoGPU/simulation_inputs/FluxFilesIcarus/\\"" >> {os.path.basename(fcl)}''',
-            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/grand/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {os.path.basename(fcl)}''',
-            f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {os.path.basename(fcl)}''',
-            f'''echo "services.NuRandomService.initSeedPolicy.policy: \\"perEvent\\"" >> {os.path.basename(fcl)}''',
-        ])
-        mg_cmd += '\n'
-
-    mg_cmd += executor.meta.run_cmd(
-        output_filename + '.json', os.path.basename(fcl), check_exists=False)
-
-    # future_func = functools.partial(fcl_future)
-    # future_func.__name__ = self.stage_type.name
-    # app = bash_app(future_func, cache=True)
-
-    future = fcl_future(
-        workdir = str(run_dir),
-        stdout = str(run_dir / output_filename.replace(".root", ".out")),
-        stderr = str(run_dir / output_filename.replace(".root", ".err")),
-        template = CMD_TEMPLATE_CONTAINER,
-        cmd=cmd,
-        larsoft_opts = executor.larsoft_opts,
-        inputs = input_arg,
-        outputs = [File(str(output_file))],
-        pre_job_hook = mg_cmd
-    )
-
-    # this modifies the list passed in by WorkflowExecutor
-    executor.futures.append(future.outputs[0])
-
-    return [future.outputs, [], '']
-
-
-class DecoderExecutor(WorkflowExecutor):
+class OverlayExecutor(WorkflowExecutor):
     """Execute a decoder workflow from user settings."""
     def __init__(self, settings: json):
         super().__init__(settings)
 
         self.meta = MetadataGenerator(settings['metadata'], self.fcls, defer_check=True)
         self.stage_order = [
-            DefaultStageTypes.DECODE,
             OVERLAY,
             DefaultStageTypes.G4,
             DefaultStageTypes.DETSIM,
+            DefaultStageTypes.DECODE,
             OVERLAY_WFM,
             DefaultStageTypes.STAGE0,
             DefaultStageTypes.STAGE1,
             DefaultStageTypes.CAF,
         ]
+
         # without this, workflow tries to make DefaultStageOrders out of
         # strings, but this fails since we added some custom ones
         self.fcls = { so: settings['fcls'][so.name] for so in self.stage_order }
@@ -193,8 +51,17 @@ class DecoderExecutor(WorkflowExecutor):
 
         self.rawdata_path = pathlib.Path(settings['workflow']['rawdata_path'])
 
-        # for organizing outputs
-        self.run_counter = 0
+        # event splitting: e.g., 50 events/file split by 10 -> 5 events per task
+        self.max_events_per_file = int(settings['workflow']['events_per_file'])
+        self.events_per_split = int(settings['workflow']['events_per_split'])
+
+        # ceiling division
+        self._nsplits = -(self.max_events_per_file // -self.events_per_split)
+        if self._nsplits < 1:
+            self._nsplits = 1
+            self.max_events_per_file = -1
+        if self._nsplits > 1:
+            print(f'Using event splitting: {self.events_per_split} events per file, assuming {self.max_events_per_file} => {self._nsplits} splits')
 
     def file_generator(self):
         path_generators = [self.rawdata_path.rglob('*.root')]
@@ -207,37 +74,60 @@ class DecoderExecutor(WorkflowExecutor):
             raise RuntimeError()
 
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
-        runfunc_ = functools.partial(runfunc, executor=self, last_file=last_file)
+        runfunc_ = functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
+                meta=self.meta, executor=self, last_file=last_file)
+        runfunc_no_meta = functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
+                meta=None, executor=self, last_file=last_file)
+        
         s = Stage(DefaultStageTypes.CAF)
         s.run_dir = get_subrun_dir(self.output_dir, iteration)
         s.runfunc = runfunc_
         workflow.add_final_stage(s)
 
-        decode_runfuncs = [functools.partial(runfunc, executor=self, nevts=5, nskip=(i * 5)) for i in range(10)]
+        # set up larsoft runfuncs to skip & split
+        '''
+        input_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
+                meta=None, executor=self, nevts=self.events_per_split, nskip=(i * self.events_per_split)) \
+                for i in range(self._nsplits)]
+        '''
+        input_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
+                meta=None, executor=self, nevts=1, nskip=(i * self.events_per_split)) \
+                for i in range(self._nsplits)]
 
         for i, file in enumerate(rawdata_files):
-            for j in range(10):
+            for j in range(self._nsplits):
                 s_stage1 = Stage(DefaultStageTypes.STAGE1)
                 s_stage0 = Stage(DefaultStageTypes.STAGE0)
-                s_overlay_wfm = Stage(OVERLAY_WFM)
-                s_detsim = Stage(DefaultStageTypes.DETSIM)
-                s_g4 = Stage(DefaultStageTypes.G4)
-                s_overlay = Stage(OVERLAY)
-                s_decode = Stage(DefaultStageTypes.DECODE, runfunc=decode_runfuncs[j])
+
+                s_overlay_wfm = Stage(OVERLAY_WFM, runfunc=runfunc_no_meta)
+                s_decode = Stage(DefaultStageTypes.DECODE, runfunc=runfunc_no_meta)
+                s_detsim = Stage(DefaultStageTypes.DETSIM, runfunc=runfunc_no_meta)
+
+                s_g4 = Stage(DefaultStageTypes.G4, runfunc=runfunc_no_meta)
+                s_overlay = Stage(OVERLAY, runfunc=input_runfuncs[j])
 
                 s_stage1.run_dir = get_subrun_dir(self.output_dir, iteration * self.files_per_subrun + i) / f'{j:03d}'
+                s_stage0.run_dir = get_subrun_dir(self.output_dir, iteration * self.files_per_subrun + i) / f'{j:03d}'
 
                 s.add_parents(s_stage1, workflow.default_fcls)
                 s_stage1.add_parents(s_stage0, workflow.default_fcls)
                 s_stage0.add_parents(s_overlay_wfm, workflow.default_fcls)
-                s_overlay_wfm.add_parents(s_detsim, workflow.default_fcls)
+                s_overlay_wfm.add_parents(s_decode, workflow.default_fcls)
+                s_decode.add_parents(s_detsim, workflow.default_fcls)
                 s_detsim.add_parents(s_g4, workflow.default_fcls)
                 s_g4.add_parents(s_overlay, workflow.default_fcls)
-                s_overlay.add_parents(s_decode, workflow.default_fcls)
 
-                s_decode.add_input_file(str(file))
-                s_decode.combine = True
+                s_overlay.add_input_file(file)
+
+                # combines stage1 with caf
+                # s_stage1.combine = True
+
+                # combines overlay with G4
+                s_overlay.combine = True
+
+                # combines detsim & decode with overlay_wfm
                 s_detsim.combine = True
+                s_decode.combine = True
 
         return workflow
 
@@ -247,28 +137,5 @@ def get_subrun_dir(prefix: pathlib.Path, subrun: int):
     return prefix / f"{100*(subrun//100):06d}" / f"subrun_{subrun:06d}"
 
 
-def main(settings):
-    # parsl
-    user_opts = create_default_useropts()
-    user_opts['run_dir'] = str(pathlib.Path(settings['run']['output']) / 'runinfo')
-    user_opts.update(settings['queue'])
-    # parsl_config = create_parsl_config(user_opts, [settings['larsoft']['spack_top'], settings['larsoft']['version'], settings['larsoft']['software']])
-    parsl_config = create_parsl_config(user_opts)
-    print(parsl_config)
-    parsl.clear()
-
-    with parsl.load(parsl_config) as dfk:
-        apply_hacks(dfk)
-        wfe = DecoderExecutor(settings)
-        wfe.execute()
-
-
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print("Please provide a json configuration file")
-        sys.exit(1)
-
-    with open(sys.argv[1], 'r') as f:
-        settings = json.load(f)
-
-    main(settings)
+    entry_point(sys.argv, OverlayExecutor)

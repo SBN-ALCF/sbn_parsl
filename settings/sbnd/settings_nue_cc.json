@@ -1,0 +1,49 @@
+{
+    "run": {
+        "output": "/lus/flare/projects/neutrinoGPU/twester/caf_from_gen_test",
+        "fclpath": "",
+        "nsubruns": 1,
+        "max_futures": 60000,
+        "seed": 1234
+    },
+    "workflow": {
+        "subruns_per_caf": 40,
+        "full_keep_fraction": 0.05
+    },
+    "larsoft": {
+        "container": "/lus/flare/projects/neutrinoGPU/containers/slf7.sif",
+        "software": "sbndcode",
+        "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft", 
+        "version": "v10_06_02",
+        "qual": "e26:prof",
+        "nevts": 10,
+        "experiment": "sbnd",
+        "lar_args" : ""
+    },
+    "queue": {
+        "queue": "debug",
+        "walltime": "1:00:00",
+        "nodes_per_block": 1,
+        "cores_per_worker": 1,
+	"min_blocks": 0,
+	"max_blocks": 1,
+	"init_blocks": 0,
+        "cpus_per_node": 102,
+        "cores_per_worker": 1,
+        "strategy": "simple",
+        "allocation": "14454",
+	"retries": 0
+    },
+    "fcls": {
+        "gen": "prodgenie_corsika_proton_rockbox_ccnue_sbnd.fcl",
+        "g4": "standard_g4_rockbox_sbnd.fcl",
+        "detsim": "standard_detsim_sbnd.fcl",
+        "reco1": "standard_reco1_sbnd.fcl",
+        "reco2": "standard_reco2_sbnd.fcl",
+        "caf": "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl"
+    },
+    "metadata": {
+        "exe": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh",
+        "mdprojectversion": "v10_06_02"
+    }
+}

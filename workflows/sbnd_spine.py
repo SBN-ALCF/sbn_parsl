@@ -10,16 +10,12 @@ import pathlib
 import functools
 import itertools
 from typing import Dict, List
-
-import parsl
-from parsl.data_provider.files import File
 from parsl.app.app import bash_app
 
-from sbnd_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor, DefaultStageTypes
-from sbnd_parsl.metadata import MetadataGenerator
-from sbnd_parsl.templates import SPINE_TEMPLATE
-from sbnd_parsl.utils import create_default_useropts, create_parsl_config
-from sbnd_parsl.dfk_hacks import apply_hacks
+from sbn_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor, DefaultStageTypes
+from sbn_parsl.metadata import MetadataGenerator
+from sbn_parsl.templates import SPINE_TEMPLATE
+from sbn_parsl.app import entry_point
 
 
 SPINE_METADATA_TEMPLATE = {
@@ -124,13 +120,16 @@ class SpineExecutor(WorkflowExecutor):
         self.spine_opts.update({'cores_per_worker': settings['workflow']['cores_per_worker']})
 
     def file_generator(self):
-        # path_generators = [self.larcv_path.rglob('larcv*.root')]
-        # generator = itertools.chain(*path_generators)
-        # for f in generator:
-        #     yield f
-        with open(self.filelist, 'r') as f:
-            for line in f.readlines():
-                yield pathlib.Path(line.strip())
+        """Run spine on list of files if specified, otherwise glob input directory"""
+        if self.filelist == '':
+            path_generators = [self.larcv_path.rglob('larcv*.root')]
+            generator = itertools.chain(*path_generators)
+            for f in generator:
+                yield f
+        else:
+            with open(self.filelist, 'r') as f:
+                for line in f.readlines():
+                    yield pathlib.Path(line.strip())
 
     def setup_single_workflow(self, iteration: int, larcv_files: List[pathlib.Path], last_file=None):
         if not larcv_files:
@@ -154,31 +153,5 @@ def get_subrun_dir(prefix: pathlib.Path, subrun: int):
     """Returns a path with directory structure like XXXX00/XXXXXX"""
     return prefix / f"{100*(subrun//100):06d}" / f"subrun_{subrun:06d}"
 
-
-def main(settings):
-    # parsl
-    user_opts = create_default_useropts()
-    user_opts['run_dir'] = str(pathlib.Path(settings['run']['output']) / 'runinfo')
-    user_opts['cores_per_worker'] = settings['workflow']['cores_per_worker']
-    user_opts.update(settings['queue'])
-
-    # user-override metadata in our template
-    SPINE_METADATA_TEMPLATE.update(settings['metadata'])
-    parsl_config = create_parsl_config(user_opts)
-    print(parsl_config)
-    parsl.clear()
-    with parsl.load(parsl_config) as dfk:
-        apply_hacks(dfk)
-        wfe = SpineExecutor(settings)
-        wfe.execute()
-
-
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print("Please provide a json configuration file")
-        sys.exit(1)
-
-    with open(sys.argv[1], 'r') as f:
-        settings = json.load(f)
-    
-    main(settings)
+    entry_point(sys.argv, SpineExecutor)

@@ -4,6 +4,7 @@ import hashlib
 import itertools
 
 from parsl.config import Config
+from parsl.dataflow.memoization import BasicMemoizer
 
 from parsl.addresses import address_by_interface
 from parsl.utils import get_all_checkpoints
@@ -19,7 +20,8 @@ POLARIS_OPTS = {
     'scheduler': '#PBS -l filesystems=home:grand:eagle\n#PBS -l place=scatter',
     'launcher': '--depth=64 --ppn 1',
     'cpu_affinity': 'alternating',
-    'available_accelerators': 32
+    'available_accelerators': 32,
+    'pbs': 'filesystems=home:grand:eagle'
 }
 
 
@@ -45,7 +47,8 @@ AURORA_OPTS = {
     'scheduler': '#PBS -l filesystems=home:flare',
     'launcher': '--ppn 1',
     'cpu_affinity': aurora_affinity(per_worker=1),
-    'available_accelerators': 102
+    'available_accelerators': 102,
+    'pbs': 'filesystems=home:flare'
 }
     # 'available_accelerators': list(itertools.chain.from_iterable([[f'{gid}.{tid}'] * 4 for gid in range(6) for tid in range(2)]))
 
@@ -75,7 +78,7 @@ def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: boo
                 'export TMPDIR=/tmp/',
                 'module load frameworks',
                 f'source ~/.venv/{venv_name}/bin/activate',
-                'export ZEX_NUMBER_OF_CCS=0:4,1:4,2:4,3:4,4:4,5:4,6:4,7:4,8:4,9:4,10:4,11:4'
+                # 'export ZEX_NUMBER_OF_CCS=0:4,1:4,2:4,3:4,4:4,5:4,6:4,7:4,8:4,9:4,10:4,11:4'
             ]
         else:
             raise RuntimeError(f"Don't know how to load virtual environments on machine {hostname}")
@@ -101,6 +104,10 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
     else:
         worker_init = _worker_init(mps=mps, venv_name='sbn')
 
+    # extra command to change directory to run_dir (prevent home from filling up with junk temp files)
+    rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
+    cwd_cmd = f'mkdir -p {rundir_path}&&cd {rundir_path}'
+
     if local:
         # user has allocated the job. Just launch
         return LocalProvider(
@@ -108,13 +115,10 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
             init_blocks     = user_opts.get("init_blocks", 1),
             max_blocks      = user_opts.get("max_blocks", 1),
             launcher        = MpiExecLauncher(bind_cmd="--cpu-bind", overrides=system_opts['launcher']),
-            worker_init     = worker_init + '&&export PATH=/opt/cray/pals/1.4/bin:${PATH}'
+            worker_init     = '&&'.join([cwd_cmd, worker_init, 'export PATH=/opt/cray/pals/1.4/bin:${PATH}'])
         )
 
     # let parsl allocate the job
-    # extra command to change directory to run_dir (prevent home from filling up with junk temp files)
-    rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
-    cwd_cmd = f'mkdir -p {rundir_path}&&cd {rundir_path}'
     return PBSProProvider(
         account         = user_opts["allocation"],
         queue           = user_opts.get("queue", "debug"),
@@ -133,17 +137,22 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
 
 def create_executor_by_hostname(user_opts, system_opts, provider):
     from parsl import HighThroughputExecutor
+    max_workers_per_node = user_opts.get("max_workers_per_node", user_opts["cpus_per_node"])
+    cpu_affinity = system_opts['cpu_affinity']
+    if max_workers_per_node != user_opts["cpus_per_node"] and system_opts["hostname"] == "aurora":
+        cpu_affinity = aurora_affinity(ncpus=max_workers_per_node)
+
     return HighThroughputExecutor(
         label="htex",
         heartbeat_period=15,
         heartbeat_threshold=120,
         worker_debug=True,
-        max_workers_per_node=user_opts["cpus_per_node"],
+        max_workers_per_node=max_workers_per_node,
         cores_per_worker=user_opts["cores_per_worker"],
         available_accelerators=system_opts['available_accelerators'],
         address=address_by_interface("bond0"),
         address_probe_timeout=120,
-        cpu_affinity=system_opts['cpu_affinity'],
+        cpu_affinity=cpu_affinity,
         prefetch_capacity=0,
         provider=provider,
         block_error_handler=False,
@@ -191,13 +200,14 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
     executor = create_executor_by_hostname(user_opts, system_opts, provider)
     checkpoints = get_all_checkpoints(user_opts["run_dir"])
     config = Config(
-            checkpoint_mode='task_exit',
+            memoizer=BasicMemoizer(
+                checkpoint_mode='task_exit',
+                checkpoint_files=checkpoints,
+            ),
             executors=[executor],
-            checkpoint_files=checkpoints,
             run_dir=user_opts["run_dir"],
             strategy=user_opts.get("strategy", "none"),
             retries=user_opts.get("retries", 5),
-            app_cache=True,
             initialize_logging=True,
             # monitoring=MonitoringHub(
             #     hub_address=address_by_interface('bond0'),

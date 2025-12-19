@@ -16,7 +16,22 @@ import logging
 from concurrent.futures import Future
 from types import MethodType
 
+from parsl.app.futures import DataFuture
+from parsl.data_provider.staging import Staging
+from parsl.data_provider.files import File
+from parsl.data_provider.zip import ZipFileStaging
+from parsl.data_provider.file_noop import NoOpFileStaging
+from parsl.data_provider.ftp import FTPSeparateTaskStaging
+from parsl.data_provider.http import HTTPSeparateTaskStaging
+from typing import TYPE_CHECKING, Any, Callable, List, Optional
+if TYPE_CHECKING:
+    from parsl.dataflow.dflow import DataFlowKernel
+
 logger = logging.getLogger('parsl.dataflow.memoization')
+
+default_staging: List[Staging]
+default_staging = [NoOpFileStaging(), FTPSeparateTaskStaging(), HTTPSeparateTaskStaging(), ZipFileStaging()]
+
 
 class ResultFuture(Future):
     def __init__(self, task_id):
@@ -24,17 +39,15 @@ class ResultFuture(Future):
         self.tid = task_id
 
 
-def my_update_memo(self, task, r: Future) -> None:
+def my_update_memo(self, task) -> None:
     """
     update memo function that stores a copy of the future result, instead of
     the original future, in the memo_lookup_table. The original future result
     contains references to the parent AppFutures, preventing them from being
     garbage collected otherwise.
     """
-    # TODO: could use typeguard
-    assert isinstance(r, Future)
-
     task_id = task['id']
+    r = task['app_fu']
 
     if not self.memoize or not task['memoize'] or 'hashsum' not in task:
         return
@@ -45,21 +58,12 @@ def my_update_memo(self, task, r: Future) -> None:
 
     if task['hashsum'] in self.memo_lookup_table:
         logger.info(f"Replacing app cache entry {task['hashsum']} with result from task {task_id}")
+        self.memo_lookup_table[task['hashsum']] = r
     else:
         logger.info(f"Storing app cache entry {task['hashsum']} with result from task {task_id}")
         new_future = ResultFuture(task_id)
         new_future.set_result(r.result())
         self.memo_lookup_table[task['hashsum']] = new_future
-
-
-
-def my_wipe_task(self, task_id: int) -> None:
-    print('calling custom my_wipe_task')
-    if self.config.garbage_collect:
-        task = self.tasks[task_id]
-        del task['depends']
-        del task['app_fu']
-        del self.tasks[task_id]
 
 
 def my_check_memo(self, task):
@@ -77,7 +81,7 @@ def my_check_memo(self, task):
         logger.debug("Task {} will not be memoized".format(task_id))
         return None
 
-    hashsum = self.make_hash(task)
+    hashsum = make_hash(task)
     logger.debug("Task {} has memoization hash {}".format(task_id, hashsum))
     result = None
     if hashsum in self.memo_lookup_table:
