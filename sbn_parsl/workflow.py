@@ -470,10 +470,12 @@ class Workflow:
         # super stage always gets Stage ID as the empty string
         self._stage.workflow_id = self._id
 
-        # this saves us one iteration in get_next_task. by marking combined,
-        # when we submit the super stage, it will submit its parent on the
-        # first call
-        self._stage.combine = True
+        # Do not set combine flag for super stage. If set, the entire workflow
+        # will run before the run_stage generator yields, effectively
+        # submitting all tasks from the workflow at once. This could be a
+        # useful feature, but by default, we want the generator to yield one
+        # task from each subrun before cycling back to this workflow
+        self._stage.combine = False
 
         self._stage.stage_id = tuple()
 

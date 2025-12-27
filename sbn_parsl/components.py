@@ -98,6 +98,7 @@ def build_larsoft_cmd(context: RunContext) -> str:
     if context.stage.stage_type != DefaultStageTypes.CAF:
         output_file_arg_str = f'--output={str(context.output_file)}'
 
+    print(context.input_files)
     input_file_arg_str = ''
     if context.input_files:
         input_file_arg_str = \
@@ -132,6 +133,7 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
         run_number = 1 + (context.stage.workflow_id // 100)
         subrun_number = context.stage.workflow_id % 100
         fcl_cmd = '\n'.join([
+            f'echo "" >> {fcl_name}',
             f'echo "source.firstRun: {run_number}" >> {fcl_name}',
             f'echo "source.firstSubRun: {subrun_number}" >> {fcl_name}',
             f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFiles/\\"" >> {fcl_name}''',
@@ -169,18 +171,16 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # first stage for file workflows will have a string or path as input
     # put it in a general form that can be passed to the next stage
     if not isinstance(inputs, list):
-        first_arg = []
-        if inputs is not None:
-            first_arg = [inputs]
-        inputs = [first_arg, [], '']
+        inputs = [[inputs], [], '']
     else:
         if len(inputs) == 1:
             inputs = [inputs, [], '']
 
+
     input_files = list(itertools.chain.from_iterable(inputs[0::3]))
     # if we pass in pathlib Paths, parsl will complain that it can't memoize
     # them, so they need to be strings or datafutures
-    input_files = [str(f) if not isinstance(f, parsl.app.futures.DataFuture) else f for f in input_files]
+    input_files = [str(f) if isinstance(f, pathlib.Path) else f for f in input_files]
 
     depends = list(itertools.chain.from_iterable(inputs[1::3]))
     parent_cmd = '\n'.join(pc for pc in inputs[2::3] if pc != '')
@@ -194,7 +194,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
         stage=self,
         input_files=[pathlib.PurePosixPath(f.filename) \
                 if isinstance(f, parsl.app.futures.DataFuture) \
-                else pathlib.PurePosixPath(f) for f in input_files],
+                else pathlib.PurePosixPath(f) for f in input_files if f is not None],
         out_dir = executor.output_dir if not self.combine else pathlib.Path('/tmp'),
         fcl=pathlib.PurePosixPath(fcl),
         label=label,
