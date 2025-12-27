@@ -1,43 +1,46 @@
 {
     "run": {
-        "output": "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_mc_test2",
+        "output": "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_mc_prod",
         "fclpath": "",
-        "nsubruns": 20,
+        "nsubruns": 80000,
         "files_per_subrun": 1,
-        "max_futures": 30000,
+        "max_futures": 60000,
         "seed": 1234
     },
     "workflow": {
-        "rawdata_path": "/lus/flare/projects/neutrinoGPU/icarus/data/run4/offbeambnbminbias-half"
+        "rawdata_path": "/lus/flare/projects/neutrinoGPU/icarus/data/run4/offbeambnbminbias-half",
+	"events_per_file": 50,
+	"events_per_split": 10
     },
     "larsoft": {
         "container": "/lus/flare/projects/neutrinoGPU/containers/slf7.sif",
         "software": "icaruscode",
         "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft", 
-        "version": "v10_06_00_04p04",
+        "version": "v10_06_00_06p03",
         "qual": "e26:prof",
         "nevts": -1,
         "experiment": "icarus",
         "lar_args" : ""
     },
     "queue": {
-        "queue": "debug",
-        "walltime": "1:00:00",
-        "nodes_per_block": 1,
+        "queue": "prod",
+        "walltime": "12:00:00",
+        "nodes_per_block": 600,
+        "max_workers_per_node": 70,
         "cores_per_worker": 1,
         "min_blocks": 0,
         "max_blocks": 1,
         "init_blocks": 0,
         "cpus_per_node": 102,
-        "cores_per_worker": 1,
         "strategy": "simple",
-        "allocation": "14454"
+        "allocation": "neutrinoGPU::ICARUSRun4_Summer2025_MC",
+	"retries": 0
     },
     "fcls": {
-        "decode": "decoder_run2_icarus.fcl",
         "overlay": "simulation_genie_icarus_bnb_overlays_volDetEnclosure_fiducial.fcl",
         "g4": "larg4_icarus_cosmics_sce.fcl",
-        "detsim": "detsim_2d_icarus_refactored_yzsim_overlay.fcl",
+        "detsim": "detsim_2d_icarus_refactored_yzsim_overlay_Run4.fcl",
+        "decode": "decoder_run2_icarus.fcl",
         "overlay_wfm": "overlay_waveforms.fcl",
         "stage0": "stage0_run2_wcdnn_icarus_overlay.fcl",
         "stage1": "stage1_run2_larcv_icarus_overlay.fcl",
@@ -47,9 +50,9 @@
         "exe": "/lus/flare/projects/neutrinoGPU/software/sbnpoms_metadata_injector_data.sh",
         "mdprojectsoftware": "icaruscode",
         "mdproductionname": "Spring2025",
-        "mdappversion": "v10_06_00_04p04",
-        "mdprojectversion": "v10_06_00_04p04",
+        "mdappversion": "v10_06_00_06p03",
+        "mdprojectversion": "v10_06_00_06p03",
         "mdgroupname": "icarus",
-        "mdfiletype": "data"
+        "mdfiletype": "mc"
     }
 }

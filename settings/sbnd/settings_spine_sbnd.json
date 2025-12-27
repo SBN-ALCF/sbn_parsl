@@ -3,7 +3,8 @@
         "output": "/lus/eagle/projects/neutrinoGPU/twester/spine_marchprod_test2",
         "nsubruns": 1,
         "max_futures": 20000,
-        "files_per_subrun": 16
+        "files_per_subrun": 16,
+	"seed": 1234
     },
     "workflow": {
         "cores_per_worker": 8,
@@ -24,6 +25,7 @@
         "walltime": "01:00:00",
         "select_options": "ngpus=32",
         "nodes_per_block": 1,
+        "cores_per_worker": 8,
         "cpus_per_node": 32,
         "init_blocks": 1,
         "max_blocks": 1,

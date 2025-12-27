@@ -268,7 +268,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # dependencies first to avoid having tasks in memory that can't run. Here,
     # we specifically deal with the case where all tasks are submitted and parsl has
     # a choice between stages of different depths to submit
-    resource_spec = {} #'priority': self.workflow_id}
+    resource_spec = {'priority': self.workflow_id}
 
     future = future_func(
         workdir = str(run_dir),
@@ -439,6 +439,17 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
             f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
+    elif context.stage.stage_type == DefaultStageTypes.STAGE1:
+        # find the first component in the output file path with "reco1" & replace with "larcv"
+        larcv_dir = pathlib.PurePosixPath(*[p if p != 'stage1' else 'larcv' for p in context.output_file.parent.parts])
+        larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
+
+        fcl_cmd = '\n'.join([
+            f'mkdir -p {str(larcv_dir)}',
+            fcl_cmd,
+            f'''echo "physics.analyzers.superaMC.out_filename: \\"{str(larcv_filename)}\\"" >> {fcl_name}''',
+            f'''echo "physics.analyzers.superaMC.unique_filename: false" >> {fcl_name}'''
+        ])
 
     return fcl_cmd
 
@@ -446,31 +457,44 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
 def build_larsoft_cmd_icarus_overlay_mc(context: RunContext) -> str:
     """Special larsoft command for icarus overlay MC: first stage is not "gen"
     but we still want to use nevts and nskip flags"""
-    if context.stage.stage_type.name != 'overlay':
-        return build_larsoft_cmd(context)
+    if context.stage.stage_type.name == 'overlay':
+        nevts = f' --nevts=-1'
+        try:
+            nevts = f' --nevts={context.lar_args["nevts"]}'
+        except KeyError:
+            pass
 
-    nevts = f' --nevts=-1'
-    try:
-        nevts = f' --nevts={context.lar_args["nevts"]}'
-    except KeyError:
-        pass
+        nskip = ''
+        try:
+            nskip = f' --nskip={context.lar_args["nskip"]}'
+        except KeyError:
+            pass
+        output_file_arg_str = ''
+        if context.stage.stage_type != DefaultStageTypes.CAF:
+            output_file_arg_str = f'--output={str(context.output_file)}'
 
-    nskip = ''
-    try:
-        nskip = f' --nskip={context.lar_args["nskip"]}'
-    except KeyError:
-        pass
+        input_file_arg_str = ''
+        if context.input_files:
+            input_file_arg_str = \
+                ' '.join([f'-s {str(file)}' for file in context.input_files])
 
-    output_file_arg_str = ''
-    if context.stage.stage_type != DefaultStageTypes.CAF:
-        output_file_arg_str = f'--output={str(context.output_file)}'
+        return f'lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
+    elif context.stage.stage_type == DefaultStageTypes.STAGE1:
+        # make a calib_ntuple directory
+        calib_dir = pathlib.PurePosixPath(*[p if p != 'stage0' else 'calib_ntuple' for p in context.input_files[0].parent.parts])
+        calib_filename = calib_dir / f"hists_{context.input_files[0].name}"
+        lar_cmd = ' '.join([
+            build_larsoft_cmd(context),
+            f'-T {str(calib_filename)}'
+        ])
+        return '\n'.join([
+            f'mkdir -p {str(calib_dir)}',
+            lar_cmd
+        ])
+    
+    # default case
+    return build_larsoft_cmd(context)
 
-    input_file_arg_str = ''
-    if context.input_files:
-        input_file_arg_str = \
-            ' '.join([f'-s {str(file)}' for file in context.input_files])
-
-    return f'lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
 
 mc_runfunc_icarus=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_icarus_overlay_mc, \
                                     output_filename_func=output_filepath_icarus_mc, fcl_cmd_func=build_modify_fcl_cmd_icarus)

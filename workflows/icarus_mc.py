@@ -85,13 +85,8 @@ class OverlayExecutor(WorkflowExecutor):
         workflow.add_final_stage(s)
 
         # set up larsoft runfuncs to skip & split
-        '''
         input_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
                 meta=None, executor=self, nevts=self.events_per_split, nskip=(i * self.events_per_split)) \
-                for i in range(self._nsplits)]
-        '''
-        input_runfuncs = [functools.partial(mc_runfunc_icarus, template=CMD_TEMPLATE_CONTAINER, \
-                meta=None, executor=self, nevts=1, nskip=(i * self.events_per_split)) \
                 for i in range(self._nsplits)]
 
         for i, file in enumerate(rawdata_files):
@@ -123,11 +118,11 @@ class OverlayExecutor(WorkflowExecutor):
                 # s_stage1.combine = True
 
                 # combines overlay with G4
-                s_overlay.combine = True
+                # s_overlay.combine = True
 
                 # combines detsim & decode with overlay_wfm
-                s_detsim.combine = True
-                s_decode.combine = True
+                # s_detsim.combine = True
+                # s_decode.combine = True
 
         return workflow
 

@@ -23,9 +23,8 @@ class Reco2FromGenExecutor(WorkflowExecutor):
     def __init__(self, settings: json):
         super().__init__(settings)
 
-        self.name_salt = str(settings['run']['seed']) + str(self.output_dir)
-        # self.detsim_path = pathlib.PosixPath(settings['workflow']['detsim_path'])
-
+        self.detsim_path = pathlib.Path(settings['workflow']['detsim_path'])
+        self.subruns_per_caf = settings['workflow']['subruns_per_caf']
         self.default_fcls = self.fcls['cv']
         self.variations = [key for key in self.fcls.keys() if key != 'cv']
 
@@ -41,7 +40,6 @@ class Reco2FromGenExecutor(WorkflowExecutor):
                 settings['metadata'], fcls, defer_check=True) \
             for key, fcls in self.fcls.items()
         }
-        self.subruns_per_caf = settings['workflow']['subruns_per_caf']
 
         # the default (CV) stage order
         self.stage_order = [DefaultStageTypes.GEN, DefaultStageTypes.G4, DefaultStageTypes.DETSIM, \
@@ -65,6 +63,10 @@ class Reco2FromGenExecutor(WorkflowExecutor):
                 key: functools.partial(mc_runfunc_sbnd, meta=self.meta[key], label=key, **common_args) \
                         for key in self.fcls.keys()
         }
+        self.runfuncs_no_meta = {
+                key: functools.partial(mc_runfunc_sbnd, meta=None, label=key, **common_args) \
+                        for key in self.fcls.keys()
+        }
 
     def file_generator(self):
         path_generators = [self.detsim_path.rglob('detsim*.root')]
@@ -73,6 +75,53 @@ class Reco2FromGenExecutor(WorkflowExecutor):
             yield f
 
     def setup_single_workflow(self, iteration: int, input_files=None, last_file=None):
+        var_dirs = {}
+        var_runfuncs = {}
+        for var in self.variations:
+            var_dirs[var] = self.output_dir / var
+
+        workflow = Workflow(self.stage_order, default_fcls=self.default_fcls)
+        # CAF for each variation
+        var_caf_stages = {}
+        for var in self.variations:
+            svar = Stage(DefaultStageTypes.CAF, stage_order=self.var_stage_order)
+            svar.run_dir = get_caf_dir(var_dirs[var], iteration)
+            svar.runfunc = self.runfuncs[var]
+            var_caf_stages[var] = svar
+            workflow.add_final_stage(svar)
+
+        for i in range(self.subruns_per_caf):
+            inst = iteration * self.subruns_per_caf + i
+
+            for var, svar in var_caf_stages.items():
+                svar_reco2 = Stage(DefaultStageTypes.RECO2, stage_order=self.var_stage_order)
+                svar_reco2.runfunc = self.runfuncs_no_meta[var]
+                svar_reco2.run_dir = get_subrun_dir(var_dirs[var], inst)
+
+                svar_reco1 = Stage(DefaultStageTypes.RECO1, stage_order=self.var_stage_order)
+
+                svar_detsim = Stage(DefaultStageTypes.DETSIM, stage_order=self.var_stage_order)
+                svar_detsim.runfunc = self.runfuncs_no_meta[var]
+                svar_scrub = Stage(DefaultStageTypes.SCRUB, stage_order=self.var_stage_order)
+                svar_scrub.runfunc = self.runfuncs_no_meta[var]
+                svar_scrub.add_input_file(input_files[i])
+
+                svar.add_parents(svar_reco2, self.fcls[var])
+                svar_reco2.add_parents(svar_reco1, self.fcls[var])
+                svar_reco1.add_parents(svar_detsim, self.fcls[var])
+                svar_detsim.add_parents(svar_scrub, self.fcls[var])
+
+                # combine scrub with detsim
+                # combine detsim with reco1
+                # combine reco2 with caf
+                svar_reco2.combine = True
+                svar_scrub.combine = True
+                svar_detsim.combine = True
+
+        return workflow
+
+
+    def _setup_single_workflow(self, iteration: int, input_files=None, last_file=None):
         cv_dir = self.output_dir / 'cv'
 
         var_dirs = {}
