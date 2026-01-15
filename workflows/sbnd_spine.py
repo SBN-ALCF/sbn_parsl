@@ -10,11 +10,14 @@ import pathlib
 import functools
 import itertools
 from typing import Dict, List
+
 from parsl.app.app import bash_app
+from parsl.data_provider.files import File
 
 from sbn_parsl.workflow import StageType, Stage, Workflow, WorkflowExecutor, DefaultStageTypes
 from sbn_parsl.metadata import MetadataGenerator
 from sbn_parsl.templates import SPINE_TEMPLATE
+from sbn_parsl.components import _transfer_ids
 from sbn_parsl.app import entry_point
 
 
@@ -41,7 +44,7 @@ SPINE_METADATA_TEMPLATE = {
 }
 
 
-@bash_app(cache=True)
+@bash_app(cache=False)
 def fcl_future(workdir, stdout, stderr, template, spine_opts, inputs=[], outputs=[], pre_job_hook='', post_job_hook=''):
     """Return formatted bash script which produces each future when executed."""
     return template.format(
@@ -101,6 +104,8 @@ def runfunc(self, fcl, input_files, run_dir, iteration, executor):
         outputs = [File(str(output_filepath))],
     )
 
+    _transfer_ids(self, future.outputs[0])
+
     executor.futures.append(future.outputs[0])
 
     return future.outputs
@@ -117,7 +122,7 @@ class SpineExecutor(WorkflowExecutor):
         self.spine_opts = settings['spine']
         self.filelist = settings['workflow']['filelist']
 
-        self.spine_opts.update({'cores_per_worker': settings['workflow']['cores_per_worker']})
+        self.spine_opts.update({'cores_per_worker': settings['queue']['cores_per_worker']})
 
     def file_generator(self):
         """Run spine on list of files if specified, otherwise glob input directory"""
