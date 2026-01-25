@@ -713,7 +713,7 @@ class WorkflowExecutor:
             self.get_task_results()
             time.sleep(10)
 
-        self._mem_db.backup(self._disk_db)
+        self.backup_db()
         self._mem_db.close()
         self._disk_db.close()
         print('Done')
@@ -760,10 +760,25 @@ class WorkflowExecutor:
 
         print(f'Futures [SUCCESS]/[FAILED]: {npass}/{nfail}')
 
-        # sync the in-memory database with the disk one if we had any changes
         if npass > 0:
-            self._mem_db.backup(self._disk_db)
+            self.backup_db()
         self.futures = remaining_futures
+
+    def backup_db(self, nretries: int=5):
+        """Sync the in-memory database with the disk one.
+        Sometimes fails on lustre similar to this: https://github.com/CGATOxford/CGATPipelines/issues/39
+        """
+        nretries = max(0, nretries)
+        for i in range(nretries):
+            try:
+                self._mem_db.backup(self._disk_db)
+                return
+            except sqlite3.OperationalError as e:
+                if i < nretries - 1:
+                    print(f'Failed to sync database file! Retrying... ({i})')
+                    time.sleep(10)
+                    continue
+                raise e
 
     def setup_single_workflow_wrapper(self, iteration: int, inputs=None, last_file=None):
         """Wrap setting the workflow ID so that the user doesn't have to do it."""

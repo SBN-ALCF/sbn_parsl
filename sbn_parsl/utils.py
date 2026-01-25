@@ -12,6 +12,7 @@ from parsl.providers import PBSProProvider, LocalProvider
 from parsl.executors import HighThroughputExecutor, ThreadPoolExecutor
 from parsl.launchers import MpiExecLauncher, GnuParallelLauncher
 from parsl.monitoring.monitoring import MonitoringHub
+from parsl.executors.high_throughput.executor import DEFAULT_LAUNCH_CMD
 
 
 POLARIS_OPTS = {
@@ -53,7 +54,7 @@ AURORA_OPTS = {
     # 'available_accelerators': list(itertools.chain.from_iterable([[f'{gid}.{tid}'] * 4 for gid in range(6) for tid in range(2)]))
 
 
-def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: bool=True, venv_name=None):
+def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: bool=True, venv_name=None, custom_cmd=''):
     """Return list of worker init commands based on the options."""
     cmds = []
     if spack_top is not None:
@@ -90,6 +91,9 @@ def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: boo
             'CUDA_VISIBLE_DEVICES=0,1,2,3 nvidia-cuda-mps-control -d',
             'echo \"start_server -uid $( id -u )\" | nvidia-cuda-mps-control'
         ]
+
+    if custom_cmd:
+        cmds.append(custom_cmd)
 
     return '&&'.join(cmds)
 
@@ -139,18 +143,21 @@ def create_executor_by_hostname(user_opts, system_opts, provider):
     from parsl import HighThroughputExecutor
     max_workers_per_node = user_opts.get("max_workers_per_node", user_opts["cpus_per_node"])
     cpu_affinity = system_opts['cpu_affinity']
-    if max_workers_per_node != user_opts["cpus_per_node"] and system_opts["hostname"] == "aurora":
-        cpu_affinity = aurora_affinity(ncpus=max_workers_per_node)
+
+    # aurora cpu mapping has some skips in it that prevent us from using alternating shorthand like on polaris
+    if system_opts["hostname"] == "aurora":
+        cpu_affinity = aurora_affinity(per_worker=user_opts["cores_per_worker"], ncpus=max_workers_per_node)
 
     return HighThroughputExecutor(
         label="htex",
         heartbeat_period=15,
         heartbeat_threshold=120,
         worker_debug=True,
+        launch_cmd='\n'.join([user_opts.get('init_cmd', ''), DEFAULT_LAUNCH_CMD]),
         max_workers_per_node=max_workers_per_node,
         cores_per_worker=user_opts["cores_per_worker"],
         available_accelerators=system_opts['available_accelerators'],
-        address=address_by_interface("bond0"),
+        address=address_by_interface("hsn0"),
         address_probe_timeout=120,
         cpu_affinity=cpu_affinity,
         prefetch_capacity=0,
@@ -208,7 +215,7 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
             run_dir=user_opts["run_dir"],
             strategy=user_opts.get("strategy", "none"),
             retries=user_opts.get("retries", 5),
-            initialize_logging=True,
+            initialize_logging=False,
             # monitoring=MonitoringHub(
             #     hub_address=address_by_interface('bond0'),
             #     monitoring_debug=False,

@@ -58,10 +58,10 @@ def entry_point(argv, wfe_class):
 
             template = LOCAL_TEMPLATE.format(
                 job_name=job_name,
-                workflow=argv[0],
+                workflow=pathlib.Path(argv[0]).resolve(),
                 out_dir=settings['run']['output'],
                 cmd_dir=str(cmd_dir),
-                settings=args.settings,
+                settings=pathlib.Path(args.settings).resolve(),
                 stdout=str(submit_script_dir / f'{job_name}.stdout'),
                 stderr=str(submit_script_dir / f'{job_name}.stderr'),
                 walltime=user_opts['walltime'],
