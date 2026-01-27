@@ -98,7 +98,6 @@ def build_larsoft_cmd(context: RunContext) -> str:
     if context.stage.stage_type != DefaultStageTypes.CAF:
         output_file_arg_str = f'--output={str(context.output_file)}'
 
-    print(context.input_files)
     input_file_arg_str = ''
     if context.input_files:
         input_file_arg_str = \
@@ -115,7 +114,7 @@ def build_larsoft_cmd(context: RunContext) -> str:
     except KeyError:
         pass
 
-    return f'lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}'
+    return f'lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip} --tmpdir=/tmp'
 
 
 def _transfer_ids(stage: Stage, future):
@@ -136,8 +135,8 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
             f'echo "" >> {fcl_name}',
             f'echo "source.firstRun: {run_number}" >> {fcl_name}',
             f'echo "source.firstSubRun: {subrun_number}" >> {fcl_name}',
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFiles/\\"" >> {fcl_name}''',
-            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/FluxFiles/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
 
@@ -435,8 +434,8 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         run_number = 1 + (context.stage.workflow_id // 100)
         subrun_number = context.stage.workflow_id % 100
         fcl_cmd = '\n'.join([
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFilesIcarus/\\"" >> {fcl_name}''',
-            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/FluxFilesIcarus/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
     elif context.stage.stage_type == DefaultStageTypes.STAGE1:
