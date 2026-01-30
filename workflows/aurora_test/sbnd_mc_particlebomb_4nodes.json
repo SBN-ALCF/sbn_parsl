@@ -1,0 +1,47 @@
+{
+    "run": {
+        "output": "your_output_dir",
+        "fclpath": "",
+        "nsubruns": 408,
+        "max_futures": 80000,
+        "seed": 1234
+    },
+    "workflow": {
+        "subruns_per_caf": 10
+    },
+    "larsoft": {
+        "container": "/lus/flare/projects/neutrinoGPU/containers/slf7.sif",
+        "software": "sbndcode",
+        "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft", 
+        "version": "v10_14_02",
+        "qual": "e26:prof",
+        "nevts": 10,
+        "experiment": "sbnd",
+        "lar_args" : ""
+    },
+    "queue": {
+        "queue": "debug-scaling",
+        "walltime": "01:00:00",
+        "nodes_per_block": 4,
+        "cores_per_worker": 1,
+        "min_blocks": 0,
+        "max_blocks": 1,
+        "init_blocks": 1,
+        "cpus_per_node": 102,
+        "cores_per_worker": 1,
+        "strategy": "none",
+        "allocation": "datascience",
+	"retries": 0,
+	"init_cmd": "cp /lus/flare/projects/neutrinoGPU/scisoft/sbnd_data-01.41.00-noarch.tar.bz2 /tmp && tar -xf /tmp/sbnd_data-01.41.00-noarch.tar.bz2 -C /tmp"
+    },
+    "fcls": {
+        "gen": "run_mpvmpr_sbnd.fcl",
+        "g4": "standard_g4_sbnd.fcl",
+        "detsim": "standard_detsim_sbnd.fcl",
+        "reco1": "standard_reco1_sbnd.fcl"
+    },
+    "metadata": {
+        "exe": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh",
+        "mdprojectversion": "v10_14_02"
+    }
+}
