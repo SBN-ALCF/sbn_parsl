@@ -14,7 +14,7 @@ source ~/.venv/sbn/bin/activate
 
 # install sbn_parsl to virtual environment
 cd sbn_parsl && pip install -e .
-cd ..
+cd workflows/aurora_test
 
 # Workflow driver program will submit jobs to pbs from the login node
 # Optional: run in a screen session to keep driver program running
