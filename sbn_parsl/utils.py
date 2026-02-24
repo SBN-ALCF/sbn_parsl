@@ -49,7 +49,7 @@ AURORA_OPTS = {
     'launcher': '--ppn 1',
     'cpu_affinity': aurora_affinity(per_worker=1),
     'available_accelerators': 102,
-    'pbs': 'filesystems=home:flare'
+    'pbs': 'filesystems=home:flare:daos_user_fs'
 }
     # 'available_accelerators': list(itertools.chain.from_iterable([[f'{gid}.{tid}'] * 4 for gid in range(6) for tid in range(2)]))
 
@@ -110,7 +110,17 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
 
     # extra command to change directory to run_dir (prevent home from filling up with junk temp files)
     rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
-    cwd_cmd = f'mkdir -p {rundir_path}&&cd {rundir_path}'
+
+    daos_cmd = ''
+    daos = True
+    if daos:
+        daos_cmds = [
+                'module use /soft/modulefiles',
+                'module load daos',
+                'launch-dfuse.sh datascience:sbnd',
+        ]
+        daos_cmd = "&&".join(daos_cmds)
+    cwd_cmd = f'{daos_cmd}&&mkdir -p {rundir_path}&&cd {rundir_path}'
 
     if local:
         # user has allocated the job. Just launch
