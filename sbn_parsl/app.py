@@ -33,11 +33,12 @@ def entry_point(argv, wfe_class):
     if args.output_dir is not None:
         if args.daos:
             # If using DAOS for output, prepend the DAOS container path to the output directory
-            settings['run']['output'] = "/tmp/datascience/sbnd" + args.output_dir
+            settings['run']['output'] = "/tmp/datascience/sbnd/" + args.output_dir
         else:
             settings['run']['output'] = args.output_dir
 
-    runinfo_dir = pathlib.Path(settings['run']['output']) / 'runinfo'
+    # runinfo_dir should always be a path on the lustre filesystem, even if outputs are going to DAOS
+    runinfo_dir = pathlib.Path(args.output_dir) / 'runinfo'
     user_opts['run_dir'] = str(runinfo_dir)
     runinfo_dir.mkdir(parents=True, exist_ok=True)
 
