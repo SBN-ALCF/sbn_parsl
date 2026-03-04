@@ -45,7 +45,7 @@ def aurora_affinity(per_worker: int=1, ncpus: int=-1):
 AURORA_OPTS = {
     'hostname': 'aurora',
     'ncpus': 208,
-    'scheduler': '#PBS -l filesystems=home:flare',
+    'scheduler': '#PBS -l filesystems=home:flare:daos_user_fs',
     'launcher': '--ppn 1',
     'cpu_affinity': aurora_affinity(per_worker=1),
     'available_accelerators': 102,
@@ -225,7 +225,7 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
             run_dir=user_opts["run_dir"],
             strategy=user_opts.get("strategy", "none"),
             retries=user_opts.get("retries", 5),
-            initialize_logging=False,
+            initialize_logging=True,
             # monitoring=MonitoringHub(
             #     hub_address=address_by_interface('bond0'),
             #     monitoring_debug=False,
