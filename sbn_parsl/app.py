@@ -15,7 +15,8 @@ from sbn_parsl.dfk_hacks import apply_hacks
 def entry_point(argv, wfe_class):
     """Provide common options & setup for sbn_parsl workflows."""
     parser = argparse.ArgumentParser(prog='sbn_parsl')
-    parser.add_argument('settings', help='Path to JSON settings file') 
+    parser.add_argument('settings', help='Path to JSON settings file')
+    parser.add_argument('--daos', action='store_true', help='Use DAOS for output storage (requires DAOS client setup on compute and login nodes)', default=False)
     parser.add_argument('-o', '--output-dir', help='Directory for outputs')
     parser.add_argument('-l', '--local', action='store_true', help='Use local provider instead of PBS for running within an existing node reservation. NOTE: Reduces worker node count by 1 for multi-node jobs') 
     parser.add_argument('-c', '--cycle', help='Cycle workflow submission such that this number of workflows must finish completely before more are submitted. The optimal choice is usually the total number of workers (nodes * CPUs/node) divided by the number of tasks started by a single workflow')
@@ -30,7 +31,11 @@ def entry_point(argv, wfe_class):
         settings = json.load(f)
 
     if args.output_dir is not None:
-        settings['run']['output'] = args.output_dir
+        if args.daos:
+            # If using DAOS for output, prepend the DAOS container path to the output directory
+            settings['run']['output'] = "/tmp/datascience/sbnd" + args.output_dir
+        else:
+            settings['run']['output'] = args.output_dir
 
     runinfo_dir = pathlib.Path(settings['run']['output']) / 'runinfo'
     user_opts['run_dir'] = str(runinfo_dir)
@@ -84,7 +89,7 @@ def entry_point(argv, wfe_class):
                 user_opts['nodes_per_block'] -= 1
 
 
-    parsl_config = create_parsl_config(user_opts, local=args.local)
+    parsl_config = create_parsl_config(user_opts, local=args.local, daos=args.daos)
     print(parsl_config)
     parsl.clear()
 

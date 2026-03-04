@@ -98,7 +98,7 @@ def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: boo
     return '&&'.join(cmds)
 
 
-def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=False):
+def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=False, daos: bool=False):
     mps = 'polaris' in system_opts['hostname']
     if len(spack_opts) >= 2:
         spack_top = spack_opts[0]
@@ -112,7 +112,6 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
     rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
 
     daos_cmd = ''
-    daos = True
     if daos:
         daos_cmds = [
                 'module use /soft/modulefiles',
@@ -205,7 +204,7 @@ def create_default_useropts(**kwargs):
     return user_opts
 
 
-def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
+def create_parsl_config(user_opts, spack_opts=[], local: bool=False, daos: bool=False):
     hostname = socket.gethostname()
     system_opts = None
     if 'polaris' in hostname or hostname.startswith('x3'):
@@ -213,7 +212,7 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
     elif 'aurora' in hostname or hostname.startswith('x4'):
         system_opts = AURORA_OPTS
 
-    provider = create_provider_by_hostname(user_opts, system_opts, spack_opts, local)
+    provider = create_provider_by_hostname(user_opts, system_opts, spack_opts, local, daos)
     executor = create_executor_by_hostname(user_opts, system_opts, provider)
     checkpoints = get_all_checkpoints(user_opts["run_dir"])
     config = Config(
