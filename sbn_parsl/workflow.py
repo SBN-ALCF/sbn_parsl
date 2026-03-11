@@ -314,7 +314,7 @@ class Stage:
                 s.workflow_id = self.workflow_id
             if s.stage_id is None:
                 # when adding to the SUPER stage, stage ID is 0, 1, 2, ... etc.
-                # then adding parents to those stages would give IDs of 00, 01, 02, ..., 10, 11, 11, ..., etc.
+                # then adding parents to those stages would give IDs of 00, 01, 02, ..., 10, 11, 12, ..., etc.
                 s.stage_id = self.stage_id + (len(self._parents_iterators),)
             if StageProperty._SUPER in self._stage_type.properties:
                 s.final = True

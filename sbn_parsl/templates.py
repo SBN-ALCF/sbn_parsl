@@ -83,7 +83,7 @@ function find_fcl() {{
 
 
 # this template additionally loads sbndata and expects "input" in the form of "-s file1 -s file2 ..."
-SPINE_TEMPLATE = f'''
+SPINE_TEMPLATE = rf'''
 {JOB_PRE}
 cd {{workdir}}
 echo "Current directory: "
@@ -146,7 +146,7 @@ mv *.h5 $(dirname {{output}}) || true
 
 
 # execute a custom command
-CMD_TEMPLATE_SPACK = f'''
+CMD_TEMPLATE_SPACK = rf'''
 {JOB_PRE}
 cd {{workdir}}
 echo "Current directory: "
@@ -200,7 +200,7 @@ mv *.root $(dirname {{output}}) || true
 '''
 
 
-CMD_TEMPLATE_CONTAINER = f'''
+CMD_TEMPLATE_CONTAINER = rf'''
 {JOB_PRE}
 cd {{workdir}}
 echo "Current directory: "
@@ -218,8 +218,10 @@ singularity run $MNT_ARG {{container}} <<EOF
     echo "Sourcing products area"
     {PROXY}
     export EXPERIMENT={{experiment}}
-    source {{larsoft_top}}/setup
-    setup {{software}} {{version}} -q {{qual}}
+    # time {{{{
+    # source {{larsoft_top}}/setup && setup {{software}} {{version}} -q {{qual}};
+    # }}}}
+    source /lus/flare/projects/neutrinoGPU/scisoft/icaruscode-v10_06_00_06p03.env
     export PATH=/lus/flare/projects/neutrinoGPU/scisoft/larsoft/gcc/v12_1_0/Linux64bit+3.10-2.17/libexec/gcc/x86_64-pc-linux-gnu/12.1.0:\$PATH
     echo "Products setup!"
     # get the fcls
@@ -243,8 +245,8 @@ singularity run $MNT_ARG {{container}} <<EOF
 
     old_idata="/lus/flare/projects/neutrinoGPU/scisoft/larsoft/icarus_data/v10_06_03"
     new_idata="/tmp/icarus_data/v10_06_03"
-    old_sdata="/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbnd_data/v01_41_00"
-    new_sdata="/tmp/sbnd_data/v01_41_00"
+    old_sdata="\$SBND_DATA_DIR"
+    new_sdata="/tmp/sbnd_data/\$SBND_DATA_VERSION"
 
     # Apply replacement to all environment variables
     while IFS='=' read -r name value; do

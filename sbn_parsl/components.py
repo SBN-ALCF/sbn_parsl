@@ -67,7 +67,7 @@ class RunContext:
         self._output_file_is_set = True
         self._output_file = v
     """
-    
+
 
 def output_filepath(context: RunContext) -> pathlib.Path:
     """Pick an output file name based on a stage and its input."""
@@ -129,13 +129,19 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
     fcl_cmd = ''
     fcl_name = context.fcl.name
     if context.stage.stage_type == DefaultStageTypes.GEN:
-        run_number = 1 + (context.stage.workflow_id // 100)
+        run_number = 1 + (context.stage.workflow_id // 100) + context.lar_args.get('first_run', 0)
         subrun_number = context.stage.workflow_id % 100
+        try:
+            event_number = 1 + (context.lar_args['nevts'] * context.stage.stage_id[-1])
+        except KeyError:
+            raise RuntimeError('Attempt to run GEN stage without setting "nevts" in LArSoft settings')
+
         fcl_cmd = '\n'.join([
             f'echo "" >> {fcl_name}',
             f'echo "source.firstRun: {run_number}" >> {fcl_name}',
             f'echo "source.firstSubRun: {subrun_number}" >> {fcl_name}',
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/FluxFiles/\\"" >> {fcl_name}''',
+            f'echo "source.firstEvent: {event_number}" >> {fcl_name}',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/fluxFiles/bnb/G4BNB/v1.1.1/fhc/a/\\"" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
@@ -175,6 +181,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
         if len(inputs) == 1:
             inputs = [inputs, [], '']
 
+    # print(f'submit stage of type {self.stage_type.name}')
 
     input_files = list(itertools.chain.from_iterable(inputs[0::3]))
     # if we pass in pathlib Paths, parsl will complain that it can't memoize
@@ -294,8 +301,35 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
 # -------
 #
 # RUNFUNCS
-# 
+#
 # -------
+
+def output_filepath_sbnd_mc(context: RunContext) -> pathlib.Path:
+    """Pick an output file name based on a stage and its input.
+    For GEN: Use random string. For later stages, use <stage name>-<input file>.root
+    """
+    if context.stage.stage_type == DefaultStageTypes.GEN:
+        # from string or posixpath input
+        _label = context.label
+        if context.label != '':
+            _label = context.label + '-'
+
+        output_filename = ''.join([
+            str(context.stage.stage_type.name), '-', _label,
+            hash_name(context.fcl.name + context.salt + context.stage.stage_id_str),
+            ".root"
+        ])
+    else:
+        if context.stage.stage_type != DefaultStageTypes.CAF:
+            output_filename = context.stage.stage_type.name + '-' \
+                    + os.path.splitext(context.input_files[0].name)[0] + '.root'
+        else:
+            output_filename = os.path.splitext(context.input_files[0].name)[0] + '.flat.caf.root'
+
+    return context.out_dir / pathlib.Path(context.label, context.stage.stage_type.name, \
+            f'{context.stage.workflow_id // 1000:06d}', \
+            f'{context.stage.workflow_id // 100:06d}', output_filename)
+
 
 def build_modify_fcl_cmd_sbnd_mc(context: RunContext) -> str:
     """Normal MC fcl command + superaMC renaming"""
@@ -328,14 +362,16 @@ def build_larsoft_cmd_drop_reco2(context: RunContext) -> str:
             f'-T {str(calib_filename)}'
         ])
         lar_cmd = '\n'.join([
-            'rm -f standard_reco2_sbnd.fcl',
             f'mkdir -p {str(calib_dir)}',
             lar_cmd
         ])
 
     return lar_cmd
 
-mc_runfunc_sbnd=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_drop_reco2, fcl_cmd_func=build_modify_fcl_cmd_sbnd_mc)
+mc_runfunc_sbnd=functools.partial(larsoft_runfunc,
+                                  output_filename_func=output_filepath_sbnd_mc,
+                                  lar_cmd_func=build_larsoft_cmd_drop_reco2,
+                                  fcl_cmd_func=build_modify_fcl_cmd_sbnd_mc)
 
 def build_larsoft_cmd_sbnd_data(context: RunContext) -> str:
     """Build larsoft command with input & output flags"""
@@ -435,18 +471,27 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         subrun_number = context.stage.workflow_id % 100
         fcl_cmd = '\n'.join([
             f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/FluxFilesIcarus/\\"" >> {fcl_name}''',
-            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
-            f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.ShowerInputFiles: [" >> {fcl_name}''',
+
+            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/p_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/He_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/N_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/Mg_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/Fe_showers_*.db\\" >> {fcl_name}''',
+            f'''echo "]" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
     elif context.stage.stage_type == DefaultStageTypes.STAGE1:
         # find the first component in the output file path with "reco1" & replace with "larcv"
         larcv_dir = pathlib.PurePosixPath(*[p if p != 'stage1' else 'larcv' for p in context.output_file.parent.parts])
         larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
 
+        larcv_dir_str = str(larcv_dir).replace("/lus", "/tmp")
+
         fcl_cmd = '\n'.join([
-            f'mkdir -p {str(larcv_dir)}',
+            f'mkdir -p {larcv_dir_str}',
             fcl_cmd,
-            f'''echo "physics.analyzers.superaMC.out_filename: \\"{str(larcv_filename)}\\"" >> {fcl_name}''',
+            f'''echo "physics.analyzers.superaMC.out_filename: \\"{larcv_dir_str}/{larcv_filename.name}\\"" >> {fcl_name}''',
             f'''echo "physics.analyzers.superaMC.unique_filename: false" >> {fcl_name}'''
         ])
 
@@ -490,7 +535,7 @@ def build_larsoft_cmd_icarus_overlay_mc(context: RunContext) -> str:
             f'mkdir -p {str(calib_dir)}',
             lar_cmd
         ])
-    
+
     # default case
     return build_larsoft_cmd(context)
 
