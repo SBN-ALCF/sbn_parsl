@@ -171,6 +171,10 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     """
 
     lar_opts = executor.larsoft_opts.copy()
+
+    # source a pre-computed environment instead of using larsoft setup script
+    # setdefault here for backwards-compatibility
+    lar_opts.setdefault('env_file', '')
     lar_opts.update(kwargs)
 
     # first stage for file workflows will have a string or path as input
@@ -282,7 +286,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
         stderr = str(run_dir / context.output_file.name.replace(".root", ".err")),
         template = template,
         cmd = cmd,
-        larsoft_opts = executor.larsoft_opts,
+        larsoft_opts = lar_opts,
         inputs = input_arg,
         outputs = [File(str(context.output_file))],
         pre_job_hook = mg_cmd,

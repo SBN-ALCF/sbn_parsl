@@ -218,10 +218,13 @@ singularity run $MNT_ARG {{container}} <<EOF
     echo "Sourcing products area"
     {PROXY}
     export EXPERIMENT={{experiment}}
-    # time {{{{
-    # source {{larsoft_top}}/setup && setup {{software}} {{version}} -q {{qual}};
-    # }}}}
-    source /lus/flare/projects/neutrinoGPU/scisoft/icaruscode-v10_06_00_06p03.env
+    if [ "{{env_file}}x" != "x" ]; then
+        echo "Sourcing environment from {{env_file}}"
+        source {{env_file}}
+    else
+        echo "Sourcing environment from {{larsoft_top}}"
+        source {{larsoft_top}}/setup && setup {{software}} {{version}} -q {{qual}};
+    fi
     export PATH=/lus/flare/projects/neutrinoGPU/scisoft/larsoft/gcc/v12_1_0/Linux64bit+3.10-2.17/libexec/gcc/x86_64-pc-linux-gnu/12.1.0:\$PATH
     echo "Products setup!"
     # get the fcls
@@ -243,8 +246,9 @@ singularity run $MNT_ARG {{container}} <<EOF
     done
     # export LOCAL_FCL=\$(basename {{fhicl}})
 
-    old_idata="/lus/flare/projects/neutrinoGPU/scisoft/larsoft/icarus_data/v10_06_03"
-    new_idata="/tmp/icarus_data/v10_06_03"
+    # these should be local tarballs on the node
+    old_idata="\$ICARUS_DATA_DIR"
+    new_idata="/tmp/icarus_data/\$ICARUS_DATA_VERSION"
     old_sdata="\$SBND_DATA_DIR"
     new_sdata="/tmp/sbnd_data/\$SBND_DATA_VERSION"
 
