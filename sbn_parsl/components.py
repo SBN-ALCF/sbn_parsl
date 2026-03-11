@@ -141,8 +141,8 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
             f'echo "source.firstRun: {run_number}" >> {fcl_name}',
             f'echo "source.firstSubRun: {subrun_number}" >> {fcl_name}',
             f'echo "source.firstEvent: {event_number}" >> {fcl_name}',
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/fluxFiles/bnb/G4BNB/v1.1.1/fhc/a/\\"" >> {fcl_name}''',
-            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"{context.lar_args["simulation_inputs"]}/fluxFiles/bnb/G4BNB/v1.1.1/fhc/a/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"{context.lar_args["simulation_inputs"]}/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
 
@@ -175,6 +175,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # source a pre-computed environment instead of using larsoft setup script
     # setdefault here for backwards-compatibility
     lar_opts.setdefault('env_file', '')
+    lar_opts.setdefault('simulation_inputs', '/lus/flare/projects/neutrinoGPU/simulation_inputs_striped')
     lar_opts.update(kwargs)
 
     # first stage for file workflows will have a string or path as input
@@ -474,14 +475,14 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         run_number = 1 + (context.stage.workflow_id // 100)
         subrun_number = context.stage.workflow_id % 100
         fcl_cmd = '\n'.join([
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/FluxFilesIcarus/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"{context.lar_args["simulation_inputs"]}/FluxFilesIcarus/\\"" >> {fcl_name}''',
             f'''echo "physics.producers.generator.ShowerInputFiles: [" >> {fcl_name}''',
 
-            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/p_showers_*.db\\", >> {fcl_name}''',
-            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/He_showers_*.db\\", >> {fcl_name}''',
-            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/N_showers_*.db\\", >> {fcl_name}''',
-            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/Mg_showers_*.db\\", >> {fcl_name}''',
-            f'''echo \\"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CORSIKA/standard/Fe_showers_*.db\\" >> {fcl_name}''',
+            f'''echo \\"{context.lar_args["simulation_inputs"]}/CORSIKA/standard/p_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"{context.lar_args["simulation_inputs"]}/CORSIKA/standard/He_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"{context.lar_args["simulation_inputs"]}/CORSIKA/standard/N_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"{context.lar_args["simulation_inputs"]}/CORSIKA/standard/Mg_showers_*.db\\", >> {fcl_name}''',
+            f'''echo \\"{context.lar_args["simulation_inputs"]}/CORSIKA/standard/Fe_showers_*.db\\" >> {fcl_name}''',
             f'''echo "]" >> {fcl_name}''',
             f'''echo "physics.producers.generator.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
