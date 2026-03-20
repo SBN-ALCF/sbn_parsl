@@ -251,11 +251,14 @@ singularity run $MNT_ARG {{container}} <<EOF
     new_idata="/tmp/icarus_data/\$ICARUS_DATA_VERSION"
     old_sdata="\$SBND_DATA_DIR"
     new_sdata="/tmp/sbnd_data/\$SBND_DATA_VERSION"
+    # old_scode="\$SBNDCODE_DIR"
+    # new_scode="/tmp/sbndcode/\$SBNDCODE_VERSION"
 
     # Apply replacement to all environment variables
     while IFS='=' read -r name value; do
       new_value=\${{{{value//\$old_idata/\$new_idata}}}}
       new_value=\${{{{new_value//\$old_sdata/\$new_sdata}}}}
+      # new_value=\${{{{new_value//\$old_scode/\$new_scode}}}}
       [ "\$new_value" != "\$value" ] && export "\$name=\$new_value"
     done < <(env)
 
