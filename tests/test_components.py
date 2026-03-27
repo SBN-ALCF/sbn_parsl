@@ -13,7 +13,7 @@ def test_lar_cmd_gen():
             lar_args={'nevts': 1}
     )
     assert build_larsoft_cmd(rc) == \
-            'lar -c gen.fcl -s input.root --output=output.root --nevts=1'
+            'lar -c gen.fcl -s input.root --output=output.root --nevts=1 --tmpdir=/tmp'
 
 def test_output_filepath():
     s = Stage(DefaultStageTypes.RECO2)
@@ -38,12 +38,14 @@ def test_build_modify_fcl_cmd():
     s.stage_id = (0,)
 
     rc = RunContext(
-            stage=s, fcl=pathlib.Path('gen.fcl')
+            stage=s, fcl=pathlib.Path('gen.fcl'), lar_args={'nevts': 1}
     )
 
     assert build_modify_fcl_cmd(rc) == \
-            r'''echo "source.firstRun: 1" >> gen.fcl
+            r'''echo "" >> gen.fcl
+echo "source.firstRun: 1" >> gen.fcl
 echo "source.firstSubRun: 0" >> gen.fcl
-echo "physics.producers.generator.FluxSearchPaths: \"/lus/flare/projects/neutrinoGPU/simulation_inputs/FluxFiles/\"" >> gen.fcl
-echo "physics.producers.corsika.ShowerInputFiles: [ \"/lus/flare/projects/neutrinoGPU/simulation_inputs/CorsikaDBFiles/p_showers_*.db\" ]" >> gen.fcl
+echo "source.firstEvent: 1" >> gen.fcl
+echo "physics.producers.generator.FluxSearchPaths: \"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/fluxFiles/bnb/G4BNB/v1.1.1/fhc/a/\"" >> gen.fcl
+echo "physics.producers.corsika.ShowerInputFiles: [ \"/lus/flare/projects/neutrinoGPU/simulation_inputs_striped/CorsikaDBFiles/p_showers_*.db\" ]" >> gen.fcl
 echo "physics.producers.corsika.ShowerCopyType: \"DIRECT\"" >> gen.fcl'''

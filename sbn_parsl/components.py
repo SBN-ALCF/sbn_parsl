@@ -141,7 +141,7 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
             f'echo "source.firstRun: {run_number}" >> {fcl_name}',
             f'echo "source.firstSubRun: {subrun_number}" >> {fcl_name}',
             f'echo "source.firstEvent: {event_number}" >> {fcl_name}',
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"{context.lar_args["simulation_inputs"]}/fluxFiles/bnb/G4BNB/v1.1.1/fhc/a/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"{context.lar_args["simulation_inputs"]}/{context.lar_args["flux_path"]}/\\"" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"{context.lar_args["simulation_inputs"]}/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
@@ -176,6 +176,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # setdefault here for backwards-compatibility
     lar_opts.setdefault('env_file', '')
     lar_opts.setdefault('simulation_inputs', '/lus/flare/projects/neutrinoGPU/simulation_inputs_striped')
+    lar_opts.setdefault('flux_path', 'fluxFiles/bnb/G4BNB/v1.1.1/fhc/a')
     lar_opts.update(kwargs)
 
     # first stage for file workflows will have a string or path as input
