@@ -34,6 +34,7 @@ import itertools
 import pathlib
 from collections import deque
 from datetime import datetime
+from concurrent.futures import as_completed
 import sqlite3
 import logging
 logger = logging.getLogger(__name__)
@@ -690,10 +691,10 @@ class WorkflowExecutor:
             # rate-limit the number of concurrent futures to avoid using too
             # much memory on login nodes (set to negative number to disable)
             while len(self.futures) > self.max_futures and self._future_limit:
-                self.get_task_results()
+                print(f'Waiting: Current futures={len(self.futures)}')
+                self.get_task_results(min_done=1, min_time=5)
                 # still too many?
                 if len(self.futures) > self.max_futures:
-                    print(f'Waiting: Current futures={len(self.futures)}')
                     time.sleep(10)
 
             try:
@@ -709,9 +710,8 @@ class WorkflowExecutor:
                 wfs[idx] = None
         
         while len(self.futures) > 0:
-            print(f'waiting for tasks to finish ({len(self.futures)})')
-            self.get_task_results()
-            time.sleep(10)
+            print(f'All tasks submitted, draining {len(self.futures)} tasks')
+            self.get_task_results(min_done=1, min_time=10)
 
         self.backup_db()
         self._mem_db.close()
@@ -720,18 +720,30 @@ class WorkflowExecutor:
         print(f'(submitted/skipped) = ({self._stage_counter}/{self._skip_counter})')
         print(f'(success/fail) = ({self._success_counter}/{self._fail_counter})')
 
-    def get_task_results(self):
-        """Loop over all tasks & clear finished ones."""
-        remaining_futures = []
+    def get_task_results(self, min_done: int=1, min_time=None):
+        """Wait for task to finish."""
+        start_time = time.time()
+        ndone = 0
 
-        # these counters print the # of successes/failures since the last
-        # update, separate from the total workflow count
+        # helper to check if we can return
+        def conditions_met():
+            if ndone < min_done:
+                return False
+
+            if min_time is None:
+                return True
+
+            if time.time() - start_time < min_time:
+                return False
+
+            return True
+
         npass = 0
         nfail = 0
-        for f in self.futures:
-            if not f.done():
-                remaining_futures.append(f)
-                continue
+        while self.futures and not conditions_met():
+            f = next(as_completed(self.futures))
+            ndone += 1
+            self.futures.remove(f)
 
             success = False
             try:
@@ -762,7 +774,6 @@ class WorkflowExecutor:
 
         if npass > 0:
             self.backup_db()
-        self.futures = remaining_futures
 
     def backup_db(self, nretries: int=5):
         """Sync the in-memory database with the disk one.
