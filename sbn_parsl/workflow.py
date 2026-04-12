@@ -37,12 +37,15 @@ from datetime import datetime
 from concurrent.futures import as_completed
 import sqlite3
 import logging
-logger = logging.getLogger(__name__)
-
 from enum import Enum, Flag, auto
 from typing import List, Tuple, Dict, Optional, Callable
 
+# don't print error message if job times out
+from parsl.executors.high_throughput.errors import ManagerLost as ManagerLostError
+
 from sbn_parsl.utils import hash_name
+
+logger = logging.getLogger(__name__)
 
 
 class NoInputFileException(Exception):
@@ -690,12 +693,10 @@ class WorkflowExecutor:
 
             # rate-limit the number of concurrent futures to avoid using too
             # much memory on login nodes (set to negative number to disable)
-            while len(self.futures) > self.max_futures and self._future_limit:
+            while len(self.futures) >= self.max_futures and self._future_limit:
+                min_done = min(1, len(self.futures) - self.max_futures)
                 print(f'Waiting: Current futures={len(self.futures)}')
-                self.get_task_results(min_done=1, min_time=5)
-                # still too many?
-                if len(self.futures) > self.max_futures:
-                    time.sleep(10)
+                self.get_task_results(min_done=min_done, min_time=1)
 
             try:
                 next(wfs[idx].get_next_task())
@@ -711,7 +712,7 @@ class WorkflowExecutor:
         
         while len(self.futures) > 0:
             print(f'All tasks submitted, draining {len(self.futures)} tasks')
-            self.get_task_results(min_done=1, min_time=10)
+            self.get_task_results(min_done=1, min_time=5)
 
         self.backup_db()
         self._mem_db.close()
@@ -724,6 +725,8 @@ class WorkflowExecutor:
         """Wait for task to finish."""
         start_time = time.time()
         ndone = 0
+        npass = 0
+        nfail = 0
 
         # helper to check if we can return
         def conditions_met():
@@ -738,12 +741,10 @@ class WorkflowExecutor:
 
             return True
 
-        npass = 0
-        nfail = 0
         while self.futures and not conditions_met():
             f = next(as_completed(self.futures))
-            ndone += 1
             self.futures.remove(f)
+            ndone += 1
 
             success = False
             try:
@@ -752,7 +753,8 @@ class WorkflowExecutor:
                 npass += 1
                 self._success_counter += 1
             except Exception as e:
-                print(f'[FAILED] task {f.tid} {f.filepath} ({e})')
+                if not isinstance(e, ManagerLostError):
+                    print(f'[FAILED] task {f.tid} {f.filepath} ({e})')
                 nfail += 1
                 self._fail_counter += 1
 
