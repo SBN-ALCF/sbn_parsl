@@ -598,7 +598,8 @@ class WorkflowExecutor:
 
         self._cursor.execute("""
             CREATE TABLE IF NOT EXISTS stages (
-                stage_id TEXT PRIMARY KEY
+                stage_id TEXT PRIMARY KEY,
+                status UNSIGNED INT
             )
         """)
 
@@ -727,6 +728,7 @@ class WorkflowExecutor:
         ndone = 0
         npass = 0
         nfail = 0
+        backup_db = False
 
         # helper to check if we can return
         def conditions_met():
@@ -750,16 +752,21 @@ class WorkflowExecutor:
             try:
                 f.result()
                 success = True
+                self.mark_stage_in_db(f.stage_id, 0)
+                backup_db = True
                 npass += 1
                 self._success_counter += 1
             except Exception as e:
+                # ignore "manager lost" errors. Don't write these to DB
                 if not isinstance(e, ManagerLostError):
                     print(f'[FAILED] task {f.tid} {f.filepath} ({e})')
+                    self.mark_stage_in_db(f.stage_id, 1)
+                    backup_db = True
                 nfail += 1
                 self._fail_counter += 1
 
+            # check if we can mark the workflow as complete
             if success:
-                self.mark_stage_in_db(f.stage_id)
                 # try/except for backwards compatibility
                 try:
                     if f.final:
@@ -774,7 +781,7 @@ class WorkflowExecutor:
 
         print(f'Futures [SUCCESS]/[FAILED]: {npass}/{nfail}')
 
-        if npass > 0:
+        if backup_db:
             self.backup_db()
 
     def backup_db(self, nretries: int=5):
@@ -805,13 +812,19 @@ class WorkflowExecutor:
         # user should implement this
         pass
 
-    def stage_in_db(self, stage_id: str) -> bool:
+    def stage_in_db(self, stage_id: str, require_success: bool=False) -> bool:
         """Check if the file is in the file database."""
         result = self._cursor.execute(
-            "SELECT 1 FROM stages WHERE stage_id=(?)",
+            "SELECT status FROM stages WHERE stage_id=(?)",
             (stage_id,)
         ).fetchone()
-        return result is not None
+
+        if result is None:
+            return False
+
+        if require_success:
+            return result == 0
+        return True
 
     def workflow_in_db(self, id_) -> bool:
         """Check if the file is in the file database."""
@@ -821,14 +834,14 @@ class WorkflowExecutor:
         ).fetchone()
         return result is not None
 
-    def mark_stage_in_db(self, stage_id):
+    def mark_stage_in_db(self, stage_id, status: int=0):
         """Add or update the file in the database."""
         # str_filename = filename
         # if isinstance(filename, pathlib.Path):
         #     str_filename = str(filename.resolve())
         self._cursor.execute(
-            "INSERT OR REPLACE INTO stages (stage_id) VALUES (?)",
-            (stage_id,)
+            "INSERT OR REPLACE INTO stages (stage_id,status) VALUES (?,?)",
+            (stage_id,status)
         )
         self._mem_db.commit()
 

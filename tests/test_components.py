@@ -38,7 +38,10 @@ def test_build_modify_fcl_cmd():
     s.stage_id = (0,)
 
     rc = RunContext(
-            stage=s, fcl=pathlib.Path('gen.fcl'), lar_args={'nevts': 1}
+            stage=s, fcl=pathlib.Path('gen.fcl'), lar_args={
+                'nevts': 1, 'simulation_inputs': '/lus/flare/projects/neutrinoGPU/simulation_inputs_striped',
+                'flux_path': 'fluxFiles/bnb/G4BNB/v1.1.1/fhc/a'
+            }
     )
 
     assert build_modify_fcl_cmd(rc) == \
