@@ -588,10 +588,10 @@ class WorkflowExecutor:
         del hash_settings['run']['nsubruns']
         db_suffix = hash_name(json.dumps(hash_settings, sort_keys=True), sep='')
 
-        db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
-        print(f'Cache will be saved to {db_file}')
-        db_file.parent.mkdir(exist_ok=True)
-        self._disk_db = sqlite3.connect(str(db_file))
+        self._db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
+        print(f'Cache will be saved to {self._db_file}')
+        self._db_file.parent.mkdir(exist_ok=True)
+        self._disk_db = sqlite3.connect(str(self._db_file))
         self._mem_db = sqlite3.connect(":memory:")
         self._disk_db.backup(self._mem_db)
         self._cursor = self._mem_db.cursor()
@@ -823,7 +823,7 @@ class WorkflowExecutor:
             return False
 
         if require_success:
-            return result == 0
+            return result[0] == 0
         return True
 
     def workflow_in_db(self, id_) -> bool:
