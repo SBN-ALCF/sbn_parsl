@@ -42,6 +42,10 @@ def entry_point(argv, wfe_class):
 
     user_opts.update(settings['queue'])
 
+    # this is needed to support copying tarballs to the nodes
+    if 'larsoft' in settings:
+        user_opts['larsoft'] = settings['larsoft']
+
     # if we are local, submit via qsub unless we are already on a compute node
     if args.local:
         if os.environ.get('PBS_NODEFILE') is None:

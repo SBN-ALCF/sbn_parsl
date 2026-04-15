@@ -148,12 +148,26 @@ def create_executor_by_hostname(user_opts, system_opts, provider):
     if system_opts["hostname"] == "aurora":
         cpu_affinity = aurora_affinity(per_worker=user_opts["cores_per_worker"], ncpus=max_workers_per_node)
 
+    init_cmd = user_opts.get('init_cmd', '')
+
+    # copy larsoft tarballs to the node if specified in larsoft opts
+    if 'larsoft' in user_opts:
+        tarballs = user_opts['larsoft'].get('tarballs', {})
+        tar_cmds = []
+        for pkg_name, pkg_path in tarballs.items():
+            pkg_path = pathlib.Path(pkg_path)
+            if not pkg_path.is_file():
+                raise RuntimeError(f'LArSoft package {pkg_name} has invalid path {pkg_path}')
+            dest_path = pathlib.PurePosixPath('/tmp', pkg_path.name)
+            tar_cmds.append(f'cp {pkg_path} /tmp && tar -xf {dest_path} -C /tmp && rm -f {dest_path}')
+        init_cmd += '\n' + '\n'.join(tar_cmds)
+
     return HighThroughputExecutor(
         label="htex",
         heartbeat_period=15,
         heartbeat_threshold=120,
         worker_debug=True,
-        launch_cmd='\n'.join([user_opts.get('init_cmd', ''), DEFAULT_LAUNCH_CMD]),
+        launch_cmd='\n'.join([init_cmd, DEFAULT_LAUNCH_CMD]),
         max_workers_per_node=max_workers_per_node,
         cores_per_worker=user_opts["cores_per_worker"],
         available_accelerators=system_opts['available_accelerators'],

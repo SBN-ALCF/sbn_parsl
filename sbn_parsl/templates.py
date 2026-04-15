@@ -81,6 +81,31 @@ function find_fcl() {{
 }}
 '''
 
+REPLACE_PKG_WITH_TMP = r'''
+replace_pkg_env_vars() {{
+  # Accepts one or more lower-case package names as arguments
+  # e.g., replace_pkg_env_vars sbnd_data sbndcode
+  for pkg in "\$@"; do
+    upper_pkg=\$(echo "\$pkg" | tr '[:lower:]' '[:upper:]')
+    old_pkg_var="\${{upper_pkg}}_DIR"
+    new_pkg_var="/tmp/\$pkg/\${{upper_pkg}}_VERSION"
+
+    # Get the current value of PKG_DIR and PKG_VERSION
+    old_pkg_val="\${{!old_pkg_var}}"
+    pkg_version_var="\${{upper_pkg}}_VERSION"
+    pkg_version="\${{!pkg_version_var}}"
+    new_pkg_val="/tmp/\$pkg/\$pkg_version"
+
+    # Apply replacement to all environment variables
+    while IFS='=' read -r name value; do
+      # Replace all occurrences of old_pkg_val with new_pkg_val
+      new_value="\${{value//\$old_pkg_val/\$new_pkg_val}}"
+      [ "\$new_value" != "\$value" ] && export "\$name=\$new_value"
+    done < <(env)
+  done
+}}
+'''
+
 
 # this template additionally loads sbndata and expects "input" in the form of "-s file1 -s file2 ..."
 SPINE_TEMPLATE = rf'''
@@ -246,21 +271,8 @@ singularity run $MNT_ARG {{container}} <<EOF
     done
     # export LOCAL_FCL=\$(basename {{fhicl}})
 
-    # these should be local tarballs on the node
-    old_idata="\$ICARUS_DATA_DIR"
-    new_idata="/tmp/icarus_data/\$ICARUS_DATA_VERSION"
-    old_sdata="\$SBND_DATA_DIR"
-    new_sdata="/tmp/sbnd_data/\$SBND_DATA_VERSION"
-    # old_scode="\$SBNDCODE_DIR"
-    # new_scode="/tmp/sbndcode/\$SBNDCODE_VERSION"
-
-    # Apply replacement to all environment variables
-    while IFS='=' read -r name value; do
-      new_value=\${{{{value//\$old_idata/\$new_idata}}}}
-      new_value=\${{{{new_value//\$old_sdata/\$new_sdata}}}}
-      # new_value=\${{{{new_value//\$old_scode/\$new_scode}}}}
-      [ "\$new_value" != "\$value" ] && export "\$name=\$new_value"
-    done < <(env)
+    {REPLACE_PKG_WITH_TMP}
+    replace_pkg_env_vars sbndcode sbnd_data
 
     {{pre_job_hook}}
 
@@ -272,11 +284,11 @@ singularity run $MNT_ARG {{container}} <<EOF
     set +e
 EOF
 
-echo "mv *.root $(dirname {{output}}) || true"
-mv *.root $(dirname {{output}}) || true
+echo "cp *.root $(dirname {{output}}) || true"
+cp *.root $(dirname {{output}}) && rm -f *.root || true
 
-echo "mv *.json $(dirname {{output}}) || true"
-mv *.json $(dirname {{output}}) || true
+echo "p *.json $(dirname {{output}}) || true"
+cp *.json $(dirname {{output}}) && rm -f *.json || true
 
 {{post_job_hook}}
 {JOB_POST}
