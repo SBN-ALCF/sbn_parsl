@@ -29,6 +29,8 @@ import sys
 import json
 import time
 import copy
+import threading
+import queue
 from types import MethodType
 import itertools
 import pathlib
@@ -342,7 +344,7 @@ class Stage:
         not (grab all tasks from first stage before continuing)
         """
         while self._parents_iterators:
-            # remove 
+            # remove
             parent, iterator = self._parents_iterators.popleft()
             try:
                 next(iterator)
@@ -416,7 +418,7 @@ def run_stage(stage: Stage, fcls: Optional[Dict]=None):
 
     stage.run()
     yield
-        
+
 
 class Workflow:
     """
@@ -535,7 +537,7 @@ class Workflow:
         return self._stage._workflow_last_file
 
 
-class WorkflowExecutor: 
+class WorkflowExecutor:
     """Class to wrap settings and run multiple workflow objects."""
     def __init__(self, settings: json):
         self.larsoft_opts = None
@@ -581,6 +583,14 @@ class WorkflowExecutor:
         # cache requires actually submitting the task, whereas this check can
         # avoid submitting the task entirely
 
+        self._db_update_thread = threading.Thread(target=self._backup_db_loop, daemon=True)
+        self._db_worker_stop = threading.Event()
+        self._db_event_queue = queue.Queue()
+        self._db_batch_max_size = 1000
+        self._db_batch_max_wait = 1.0
+        self._db_backup_interval = 30.0
+        self._db_update_thread.start()
+
         # DB file is unique to settings used for the workflow, modulo the queue
         # settings and number of subruns which could change on re-runs
         hash_settings = copy.deepcopy(settings)
@@ -591,8 +601,8 @@ class WorkflowExecutor:
         self._db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
         print(f'Cache will be saved to {self._db_file}')
         self._db_file.parent.mkdir(exist_ok=True)
-        self._disk_db = sqlite3.connect(str(self._db_file))
-        self._mem_db = sqlite3.connect(":memory:")
+        self._disk_db = sqlite3.connect(str(self._db_file), check_same_thread=False)
+        self._mem_db = sqlite3.connect(":memory:", check_same_thread=False)
         self._disk_db.backup(self._mem_db)
         self._cursor = self._mem_db.cursor()
 
@@ -710,36 +720,37 @@ class WorkflowExecutor:
 
                 # let garbage collection happen
                 wfs[idx] = None
-        
+
         while len(self.futures) > 0:
             print(f'All tasks submitted, draining {len(self.futures)} tasks')
             self.get_task_results(min_done=1, min_time=5)
 
-        self.backup_db()
-        self._mem_db.close()
-        self._disk_db.close()
+        self._db_worker_stop.set()
+        self._db_update_thread.join()
         print('Done')
         print(f'(submitted/skipped) = ({self._stage_counter}/{self._skip_counter})')
         print(f'(success/fail) = ({self._success_counter}/{self._fail_counter})')
 
     def get_task_results(self, min_done: int=1, min_time=None):
-        """Wait for task to finish."""
+        """
+        Wait for task to finish. Require min_done tasks and min_time time elapsed before returning
+        """
         start_time = time.time()
+
         ndone = 0
         npass = 0
         nfail = 0
-        backup_db = False
 
         # helper to check if we can return
         def conditions_met():
+            now = time.time()
             if ndone < min_done:
                 return False
 
-            if min_time is None:
-                return True
-
-            if time.time() - start_time < min_time:
-                return False
+            # require minimum number of seconds
+            if min_time is not None:
+                if now - start_time < min_time:
+                    return False
 
             return True
 
@@ -753,15 +764,18 @@ class WorkflowExecutor:
                 f.result()
                 success = True
                 self.mark_stage_in_db(f.stage_id, 0)
-                backup_db = True
+                self._db_event_queue.put(
+                    {'type': 'stage', 'stage_id': f.stage_id, 'status': 0}
+                )
                 npass += 1
                 self._success_counter += 1
             except Exception as e:
                 # ignore "manager lost" errors. Don't write these to DB
                 if not isinstance(e, ManagerLostError):
                     print(f'[FAILED] task {f.tid} {f.filepath} ({e})')
-                    self.mark_stage_in_db(f.stage_id, 1)
-                    backup_db = True
+                    self._db_event_queue.put(
+                        {'type': 'stage', 'stage_id': f.stage_id, 'status': 1}
+                    )
                 nfail += 1
                 self._fail_counter += 1
 
@@ -775,14 +789,73 @@ class WorkflowExecutor:
                                 self._workflow_counters[f.workflow_id]['nfinal']:
                             # mark in DB that this workflow is fully finished
                             print(f'Workflow {f.workflow_id} completed successfully!')
-                            self.mark_workflow_in_db(f.workflow_id)
+                            self._db_event_queue.put(
+                                {'type': 'workflow', 'workflow_id': f.workflow_id}
+                            )
                 except AttributeError as e:
                     print(f'Future is missing workflow_id attribute required for caching. Please set in the runfunc!')
 
         print(f'Futures [SUCCESS]/[FAILED]: {npass}/{nfail}')
 
-        if backup_db:
-            self.backup_db()
+    def _backup_db_loop(self):
+        pending_stage_updates = []
+        pending_workflow_ids = []
+
+        last_flush_time = time.time()
+        last_backup_time = time.time()
+
+        def _flush_db_batches():
+            """Perform batched DB writes for pending events."""
+            nonlocal pending_stage_updates
+            nonlocal pending_workflow_ids
+            if pending_stage_updates:
+                self.mark_stages_in_db(pending_stage_updates)
+            if pending_workflow_ids:
+                self.mark_workflows_in_db(pending_workflow_ids)
+            pending_stage_updates.clear()
+            pending_workflow_ids.clear()
+
+        while not self._db_worker_stop.is_set():
+            timeout = self._db_batch_max_wait
+            try:
+                evt = self._db_event_queue.get(timeout=timeout)
+            except queue.Empty:
+                evt = None
+
+            if evt is None:
+                # Either timeout or sentinel
+                if self._db_worker_stop.is_set():
+                    # On stop, flush and break
+                    _flush_db_batches()
+                    self._maybe_backup_db(force=True, last_backup_time_ref=[last_backup_time])
+                    break
+            else:
+                if evt["type"] == "stage":
+                    pending_stage_updates.append((evt["stage_id"], evt["status"]))
+                elif evt["type"] == "workflow":
+                    pending_workflow_ids.append(evt["workflow_id"])
+                else:
+                    raise RuntimeError(f'Got unsupported database event {evt["type"]}')
+
+            now = time.time()
+            should_flush = (
+                len(pending_stage_updates) > 0
+                and (len(pending_stage_updates) >= self._db_batch_max_size
+                or (now - last_flush_time) >= self._db_batch_max_wait)
+            )
+
+            if should_flush:
+                print(f'Writing {len(pending_stage_updates)} stage(s) to database')
+                _flush_db_batches()
+                last_flush_time = now
+
+                self._maybe_backup_db(force=False, last_backup_time_ref=[last_backup_time])
+                last_backup_time = time.time()
+                print(f'Done writing to database')
+
+        self._mem_db.close()
+        self._disk_db.close()
+
 
     def backup_db(self, nretries: int=5):
         """Sync the in-memory database with the disk one.
@@ -799,6 +872,18 @@ class WorkflowExecutor:
                     time.sleep(10)
                     continue
                 raise e
+
+    def _maybe_backup_db(self, force: bool, last_backup_time_ref):
+        """Call backup_db every _db_backup_interval seconds or if forced.
+
+        last_backup_time_ref: single-element list [last_backup_time] so we can update it.
+        """
+        now = time.time()
+        last_backup_time = last_backup_time_ref[0]
+        if force or (now - last_backup_time) >= self._db_backup_interval:
+            self.backup_db()
+            last_backup_time_ref[0] = now
+
 
     def setup_single_workflow_wrapper(self, iteration: int, inputs=None, last_file=None):
         """Wrap setting the workflow ID so that the user doesn't have to do it."""
@@ -836,22 +921,34 @@ class WorkflowExecutor:
 
     def mark_stage_in_db(self, stage_id, status: int=0):
         """Add or update the file in the database."""
-        # str_filename = filename
-        # if isinstance(filename, pathlib.Path):
-        #     str_filename = str(filename.resolve())
-        self._cursor.execute(
-            "INSERT OR REPLACE INTO stages (stage_id,status) VALUES (?,?)",
-            (stage_id,status)
+        self.mark_stages_in_db([(stage_id, status)])
+
+    def mark_stages_in_db(self, stages):
+        """Add or update the file in the database."""
+        if not stages:
+            return
+
+        self._cursor.executemany(
+            "INSERT OR REPLACE INTO stages (stage_id, status) VALUES (?, ?)",
+            stages,
         )
         self._mem_db.commit()
 
     def mark_workflow_in_db(self, id_):
-        """Add or update the file in the database."""
-        self._cursor.execute(
+        """mark workflow in the database as complete."""
+        self.mark_workflows_in_db([id_])
+
+    def mark_workflows_in_db(self, ids):
+        """mark workflow(s) in the database as complete."""
+        if not ids:
+            return
+        rows = [(id_,) for id_ in ids]
+        self._cursor.executemany(
             "INSERT OR REPLACE INTO workflows (id) VALUES (?)",
-            (id_,)
+            rows,
         )
         self._mem_db.commit()
+
 
 if __name__ == '__main__':
     # TODO demo
