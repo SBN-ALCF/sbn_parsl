@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 JOB_PRE = r'''
-echo "START $(date +%s) $(hostname)" 
+echo "START $(date +%s) $(hostname)"
 echo "Job starting!"
 pwd
 date
@@ -16,7 +16,7 @@ echo "\nJob finished in: $(pwd)"
 echo "Available files:"
 ls
 hostname
-echo "END $(date +%s) $(hostname)" 
+echo "END $(date +%s) $(hostname)"
 '''
 
 # pick the CUDA device with the lowest memory utilization by assigning it to
@@ -57,7 +57,7 @@ echo "FHICL_FILE_PATH=$FHICL_FILE_PATH"
 function find_fcl() {{
     if [ "$1" != "${{1#/}}" ]; then
         # absolute path
-        echo $1 
+        echo $1
         return 0
     fi
 
@@ -72,7 +72,7 @@ echo "FHICL_FILE_PATH=\$FHICL_FILE_PATH"
 function find_fcl() {{
     if [ "\$1" != "\${{1#/}}" ]; then
         # absolute path
-        echo \$1 
+        echo \$1
         return 0
     fi
 
@@ -130,7 +130,7 @@ sed -i "s|\(.*num_workers:\).*|\\1 {{cores_per_worker}}|g" $TMP_CFG
 sed -i "s|\(.*weight_path:\).*|\\1 {{weights}}|g" $TMP_CFG
 sed -i "s|\(.*cfg:\).*\(flashmatch.*\.cfg\).*|\\1 $(dirname {{config}})/\\2|g" $TMP_CFG
 
-# use GPUs from environment, so remove this 
+# use GPUs from environment, so remove this
 sed -i "s|\(.*gpus:\).*||g" $TMP_CFG
 echo "Config: $TMP_CFG"
 
@@ -234,10 +234,12 @@ echo "Current files: "
 ls
 echo "Move fcl."
 
+echo "CONTAINTER $(date +%s) $(hostname)"
 echo "Load singularity"
 {CONTAINER_INIT}
 set -e
 singularity run $MNT_ARG {{container}} <<EOF
+    echo "ENV \$(date +%s) \$(hostname)"
     echo "Running in: "
     pwd
     echo "Sourcing products area"
@@ -251,7 +253,7 @@ singularity run $MNT_ARG {{container}} <<EOF
         source {{larsoft_top}}/setup && setup {{software}} {{version}} -q {{qual}};
     fi
     export PATH=/lus/flare/projects/neutrinoGPU/scisoft/larsoft/gcc/v12_1_0/Linux64bit+3.10-2.17/libexec/gcc/x86_64-pc-linux-gnu/12.1.0:\$PATH
-    echo "Products setup!"
+    echo "FHICL \$(date +%s) \$(hostname)"
     # get the fcls
     FCL_LIST=\$(sed -n -e 's/.*-c\ \(.*fcl\).*/\\1/p' <( echo "{{cmd}}" ))
     echo \${{{{FCL_LIST[@]}}}}
@@ -269,21 +271,21 @@ singularity run $MNT_ARG {{container}} <<EOF
             echo "Could not find fcl \$fcl! Expect subsequent commands to fail."
         fi
     done
-    # export LOCAL_FCL=\$(basename {{fhicl}})
 
     {REPLACE_PKG_WITH_TMP}
     replace_pkg_env_vars sbndcode sbnd_data
 
+    echo "HOOK \$(date +%s) \$(hostname)"
     {{pre_job_hook}}
-
-    # echo "LOCAL_FCL=\$LOCAL_FCL"
 
     set -e
     echo "About to run larsoft"
+    echo "LAR \$(date +%s) \$(hostname)"
     {{cmd}}
     set +e
 EOF
 
+echo "CLEAN $(date +%s) $(hostname)"
 echo "cp *.root $(dirname {{output}}) || true"
 cp *.root $(dirname {{output}}) && rm -f *.root || true
 
