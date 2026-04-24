@@ -142,6 +142,8 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
             f'echo "source.firstSubRun: {subrun_number}" >> {fcl_name}',
             f'echo "source.firstEvent: {event_number}" >> {fcl_name}',
             f'''echo "physics.producers.generator.FluxSearchPaths: \\"{context.lar_args["simulation_inputs"]}/{context.lar_args["flux_path"]}/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxFiles: [ \\"{context.lar_args["flux_files"]}\\" ]" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxType:  \\"{context.lar_args["flux_type"]}\\"" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerInputFiles: [ \\"{context.lar_args["simulation_inputs"]}/CorsikaDBFiles/p_showers_*.db\\" ]" >> {fcl_name}''',
             f'''echo "physics.producers.corsika.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
@@ -177,6 +179,8 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     lar_opts.setdefault('env_file', '')
     lar_opts.setdefault('simulation_inputs', '/lus/flare/projects/neutrinoGPU/simulation_inputs_striped')
     lar_opts.setdefault('flux_path', 'fluxFiles/bnb/G4BNB/v1.1.1/fhc/a')
+    lar_opts.setdefault('flux_files', 'NuBeam_production_BooNE_50m_I174000A_*.dk2nu.root')
+    lar_opts.setdefault('flux_type', 'dk2nu')
     lar_opts.update(kwargs)
 
     # first stage for file workflows will have a string or path as input
@@ -282,10 +286,17 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # a choice between stages of different depths to submit
     resource_spec = {'priority': self.workflow_id}
 
+    stdout = str(run_dir / context.output_file.name.replace(".root", ".out"))
+    stderr = str(run_dir / context.output_file.name.replace(".root", ".err"))
+    if context.output_file.suffix != 'root':
+        # if .root wasn't in the extension, file names above will be missing this suffix
+        stdout += '.out'
+        stderr += '.err'
+
     future = future_func(
         workdir = str(run_dir),
-        stdout = str(run_dir / context.output_file.name.replace(".root", ".out")),
-        stderr = str(run_dir / context.output_file.name.replace(".root", ".err")),
+        stdout = stdout,
+        stderr = stderr,
         template = template,
         cmd = cmd,
         larsoft_opts = lar_opts,
@@ -476,7 +487,7 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         run_number = 1 + (context.stage.workflow_id // 100)
         subrun_number = context.stage.workflow_id % 100
         fcl_cmd = '\n'.join([
-            f'''echo "physics.producers.generator.FluxSearchPaths: \\"{context.lar_args["simulation_inputs"]}/FluxFilesIcarus/\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.generator.FluxSearchPaths: \\"{context.lar_args["simulation_inputs"]}/{context.lar_args["flux_path"]}/\\"" >> {fcl_name}''',
             f'''echo "physics.producers.generator.ShowerInputFiles: [" >> {fcl_name}''',
 
             f'''echo \\"{context.lar_args["simulation_inputs"]}/CORSIKA/standard/p_showers_*.db\\", >> {fcl_name}''',
@@ -492,7 +503,7 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         larcv_dir = pathlib.PurePosixPath(*[p if p != 'stage1' else 'larcv' for p in context.output_file.parent.parts])
         larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
 
-        larcv_dir_str = str(larcv_dir).replace("/lus", "/tmp")
+        larcv_dir_str = str(larcv_dir) # .replace("/lus", "/tmp")
 
         fcl_cmd = '\n'.join([
             f'mkdir -p {larcv_dir_str}',
