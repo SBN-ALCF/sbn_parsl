@@ -69,9 +69,7 @@ def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: boo
             # use conda
             cmds += [
                 'export TMPDIR=/tmp/',
-                'module use /soft/modulefiles',
-                'module load conda',
-                f'conda activate {venv_name}'
+                f'source ~/.venv/{venv_name}/bin/activate',
             ]
         elif 'aurora' in hostname or hostname.startswith('x4'):
             # use pip with frameworks
