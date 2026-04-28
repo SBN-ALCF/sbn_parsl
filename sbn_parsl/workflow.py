@@ -589,9 +589,9 @@ class WorkflowExecutor:
         self._db_event_queue = queue.Queue()
         self._db_lock = threading.Lock()
 
-        self._db_batch_max_size = 1000
-        self._db_batch_max_wait = 1.0
-        self._db_backup_interval = 30.0
+        self._db_batch_max_size = 5000
+        self._db_batch_max_wait = 5.0
+        self._db_backup_interval = 300.0
         self._db_update_thread.start()
 
         # DB file is unique to settings used for the workflow, modulo the queue
@@ -757,8 +757,7 @@ class WorkflowExecutor:
 
             return True
 
-        while self.futures and not conditions_met():
-            f = next(as_completed(self.futures))
+        for f in as_completed(list(self.futures)):
             self.futures.discard(f)
             ndone += 1
 
@@ -797,6 +796,9 @@ class WorkflowExecutor:
                 except AttributeError as e:
                     print(f'Future is missing workflow_id attribute required for caching. Please set in the runfunc!')
 
+            if conditions_met():
+                break
+
         print(f'Futures [SUCCESS]/[FAILED]: {npass}/{nfail}')
 
     def _backup_db_loop(self):
@@ -804,7 +806,7 @@ class WorkflowExecutor:
         pending_workflow_ids = []
 
         last_flush_time = time.time()
-        last_backup_time = time.time()
+        last_backup_time = [time.time()]
 
         def _flush_db_batches():
             """Perform batched DB writes for pending events."""
@@ -829,7 +831,7 @@ class WorkflowExecutor:
                 if self._db_worker_stop.is_set():
                     # On stop, flush and break
                     _flush_db_batches()
-                    self._maybe_backup_db(force=True, last_backup_time_ref=[last_backup_time])
+                    self._maybe_backup_db(force=True, last_backup_time_ref=last_backup_time)
                     break
             else:
                 if evt["type"] == "stage":
@@ -851,8 +853,7 @@ class WorkflowExecutor:
                 _flush_db_batches()
                 last_flush_time = now
 
-                self._maybe_backup_db(force=False, last_backup_time_ref=[last_backup_time])
-                last_backup_time = time.time()
+                self._maybe_backup_db(force=False, last_backup_time_ref=last_backup_time)
                 print(f'Done writing to database')
 
         self._mem_db.close()
