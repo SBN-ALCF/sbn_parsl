@@ -27,7 +27,7 @@ class CAFFromGenExecutor(WorkflowExecutor):
                                          template=CMD_TEMPLATE_CONTAINER,
                                          meta=self.meta)
 
-    def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
+    def _setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
         runfunc_ = self.runfunc
         s = Stage(DefaultStageTypes.CAF)
@@ -37,13 +37,34 @@ class CAFFromGenExecutor(WorkflowExecutor):
 
         for i in range(self.subruns_per_caf):
             inst = iteration * self.subruns_per_caf + i
-            # create reco2 file from MC, only need to specify the last stage
-            # since there are no inputs
-            s2 = Stage(DefaultStageTypes.RECO2)
-            s.add_parents(s2, workflow.default_fcls)
 
-            # each reco2 file will have its own directory
-            s2.run_dir = get_subrun_dir(self.output_dir, inst)
+            s_reco2 = Stage(DefaultStageTypes.RECO2)
+            s_reco1 = Stage(DefaultStageTypes.RECO1)
+            s_detsim = Stage(DefaultStageTypes.DETSIM)
+            s_g4 = Stage(DefaultStageTypes.G4)
+            s_gen = Stage(DefaultStageTypes.GEN)
+
+            s.add_parents(s_reco2, workflow.default_fcls)
+            s_reco2.add_parents(s_reco1, workflow.default_fcls)
+            s_reco1.add_parents(s_detsim, workflow.default_fcls)
+            s_detsim.add_parents(s_g4, workflow.default_fcls)
+            s_g4.add_parents(s_gen, workflow.default_fcls)
+
+            s_gen.combine = True
+            s_reco2.combine = True
+
+            # each workflow will have its own directory
+            s_reco2.run_dir = get_subrun_dir(self.output_dir, inst)
+
+        return workflow
+
+    def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
+        workflow = Workflow(self.stage_order, default_fcls=self.fcls)
+        runfunc_ = self.runfunc
+        s = Stage(DefaultStageTypes.GEN)
+        s.runfunc = self.runfunc
+        workflow.add_final_stage(s)
+        s.run_dir = get_subrun_dir(self.output_dir, iteration)
 
         return workflow
 
