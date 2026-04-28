@@ -565,7 +565,8 @@ class WorkflowExecutor:
             pass
         self.fcls = settings['fcls']
 
-        self.futures = []
+        # for lots of futures (>10k), set is much faster than list)
+        self.futures = set()
 
         self.workflow_opts = settings['workflow']
         self._workflow_counters = {}
@@ -586,6 +587,8 @@ class WorkflowExecutor:
         self._db_update_thread = threading.Thread(target=self._backup_db_loop, daemon=True)
         self._db_worker_stop = threading.Event()
         self._db_event_queue = queue.Queue()
+        self._db_lock = threading.Lock()
+
         self._db_batch_max_size = 1000
         self._db_batch_max_wait = 1.0
         self._db_backup_interval = 30.0
@@ -756,14 +759,13 @@ class WorkflowExecutor:
 
         while self.futures and not conditions_met():
             f = next(as_completed(self.futures))
-            self.futures.remove(f)
+            self.futures.discard(f)
             ndone += 1
 
             success = False
             try:
                 f.result()
                 success = True
-                self.mark_stage_in_db(f.stage_id, 0)
                 self._db_event_queue.put(
                     {'type': 'stage', 'stage_id': f.stage_id, 'status': 0}
                 )
@@ -839,7 +841,7 @@ class WorkflowExecutor:
 
             now = time.time()
             should_flush = (
-                len(pending_stage_updates) > 0
+                (pending_stage_updates or pending_workflow_ids)
                 and (len(pending_stage_updates) >= self._db_batch_max_size
                 or (now - last_flush_time) >= self._db_batch_max_wait)
             )
@@ -899,10 +901,11 @@ class WorkflowExecutor:
 
     def stage_in_db(self, stage_id: str, require_success: bool=False) -> bool:
         """Check if the file is in the file database."""
-        result = self._cursor.execute(
-            "SELECT status FROM stages WHERE stage_id=(?)",
-            (stage_id,)
-        ).fetchone()
+        with self._db_lock:
+            result = self._cursor.execute(
+                "SELECT status FROM stages WHERE stage_id=(?)",
+                (stage_id,)
+            ).fetchone()
 
         if result is None:
             return False
@@ -913,10 +916,11 @@ class WorkflowExecutor:
 
     def workflow_in_db(self, id_) -> bool:
         """Check if the file is in the file database."""
-        result = self._cursor.execute(
-            "SELECT 1 FROM workflows WHERE id=(?)",
-            (id_,)
-        ).fetchone()
+        with self._db_lock:
+            result = self._cursor.execute(
+                "SELECT 1 FROM workflows WHERE id=(?)",
+                (id_,)
+            ).fetchone()
         return result is not None
 
     def mark_stage_in_db(self, stage_id, status: int=0):
@@ -928,11 +932,12 @@ class WorkflowExecutor:
         if not stages:
             return
 
-        self._cursor.executemany(
-            "INSERT OR REPLACE INTO stages (stage_id, status) VALUES (?, ?)",
-            stages,
-        )
-        self._mem_db.commit()
+        with self._db_lock:
+            self._cursor.executemany(
+                "INSERT OR REPLACE INTO stages (stage_id, status) VALUES (?, ?)",
+                stages,
+            )
+            self._mem_db.commit()
 
     def mark_workflow_in_db(self, id_):
         """mark workflow in the database as complete."""
@@ -943,11 +948,12 @@ class WorkflowExecutor:
         if not ids:
             return
         rows = [(id_,) for id_ in ids]
-        self._cursor.executemany(
-            "INSERT OR REPLACE INTO workflows (id) VALUES (?)",
-            rows,
-        )
-        self._mem_db.commit()
+        with self._db_lock:
+            self._cursor.executemany(
+                "INSERT OR REPLACE INTO workflows (id) VALUES (?)",
+                rows,
+            )
+            self._mem_db.commit()
 
 
 if __name__ == '__main__':

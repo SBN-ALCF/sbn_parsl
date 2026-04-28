@@ -273,7 +273,7 @@ singularity run $MNT_ARG {{container}} <<EOF
     done
 
     {REPLACE_PKG_WITH_TMP}
-    replace_pkg_env_vars sbndcode sbnd_data
+    replace_pkg_env_vars sbndcode sbnd_data icaruscode icarus_data
 
     echo "HOOK \$(date +%s) \$(hostname)"
     {{pre_job_hook}}

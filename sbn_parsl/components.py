@@ -231,7 +231,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # output_file = executor.output_dir / output_filename_func(self, first_file_name, fcl, label, executor.name_salt, lar_opts)
     context.output_file = output_filename_func(context)
 
-    if executor.stage_in_db(self.stage_id_str, require_success=True):
+    if executor.stage_in_db(self.stage_id_str, require_success=False):
         executor._skip_counter += 1
         return [[context.output_file], [], '']
 
@@ -309,7 +309,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     _transfer_ids(self, future.outputs[0])
 
     # this modifies the list passed in by WorkflowExecutor
-    executor.futures.append(future.outputs[0])
+    executor.futures.add(future.outputs[0])
 
     return [future.outputs, [], '']
 
