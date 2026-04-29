@@ -18,6 +18,7 @@ def entry_point(argv, wfe_class):
     parser.add_argument('settings', help='Path to JSON settings file')
     parser.add_argument('--daos', action='store_true', help='Use DAOS for output storage (requires DAOS client setup on compute and login nodes)', default=False)
     parser.add_argument('-o', '--output-dir', help='Directory for outputs')
+    parser.add_argument('-r', '--runinfo-dir', help='Directory for workflow outputs')
     parser.add_argument('-l', '--local', action='store_true', help='Use local provider instead of PBS for running within an existing node reservation. NOTE: Reduces worker node count by 1 for multi-node jobs') 
     parser.add_argument('-c', '--cycle', help='Cycle workflow submission such that this number of workflows must finish completely before more are submitted. The optimal choice is usually the total number of workers (nodes * CPUs/node) divided by the number of tasks started by a single workflow')
     parser.set_defaults(local=False)
@@ -30,15 +31,15 @@ def entry_point(argv, wfe_class):
     with open(args.settings, 'r') as f:
         settings = json.load(f)
 
+    if args.runinfo_dir is not None:
+        settings['run']['runinfo'] = args.runinfo_dir
+
     if args.output_dir is not None:
-        if args.daos:
-            # If using DAOS for output, prepend the DAOS container path to the output directory
-            settings['run']['output'] = "/tmp/datascience/sbnd/" + args.output_dir
-        else:
-            settings['run']['output'] = args.output_dir
+        settings['run']['output'] = args.output_dir
+
 
     # runinfo_dir should always be a path on the lustre filesystem, even if outputs are going to DAOS
-    runinfo_dir = pathlib.Path(args.output_dir) / 'runinfo'
+    runinfo_dir = pathlib.Path(args.runinfo_dir) / 'runinfo'
     user_opts['run_dir'] = str(runinfo_dir)
     runinfo_dir.mkdir(parents=True, exist_ok=True)
 
@@ -94,6 +95,7 @@ def entry_point(argv, wfe_class):
     print(parsl_config)
     parsl.clear()
 
+    print(f'{settings=}')
     with parsl.load(parsl_config) as dfk:
         apply_hacks(dfk)
         wfe = wfe_class(settings)

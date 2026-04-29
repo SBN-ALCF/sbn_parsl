@@ -541,6 +541,7 @@ class WorkflowExecutor:
             pass
 
         self.run_opts = settings['run']
+        self.runinfo_dir = pathlib.Path(self.run_opts['runinfo'])
         self.output_dir = pathlib.Path(self.run_opts['output'])
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -584,8 +585,11 @@ class WorkflowExecutor:
         del hash_settings['run']['nsubruns']
         db_suffix = hash_name(json.dumps(hash_settings, sort_keys=True), sep='')
 
-        db_file = self.output_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
+        db_file = self.runinfo_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
         print(f'Cache will be saved to {db_file}')
+        print(f'{self.runinfo_dir=}')
+        print(f"{db_file=}")
+        print(f"{db_file.parent=}")
         db_file.parent.mkdir(exist_ok=True)
         self._disk_db = sqlite3.connect(str(db_file))
         self._mem_db = sqlite3.connect(":memory:")
