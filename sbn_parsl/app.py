@@ -15,8 +15,10 @@ from sbn_parsl.dfk_hacks import apply_hacks
 def entry_point(argv, wfe_class):
     """Provide common options & setup for sbn_parsl workflows."""
     parser = argparse.ArgumentParser(prog='sbn_parsl')
-    parser.add_argument('settings', help='Path to JSON settings file') 
+    parser.add_argument('settings', help='Path to JSON settings file')
+    parser.add_argument('--daos', action='store_true', help='Use DAOS for output storage (requires DAOS client setup on compute and login nodes)', default=False)
     parser.add_argument('-o', '--output-dir', help='Directory for outputs')
+    parser.add_argument('-r', '--runinfo-dir', help='Directory for workflow outputs')
     parser.add_argument('-l', '--local', action='store_true', help='Use local provider instead of PBS for running within an existing node reservation. NOTE: Reduces worker node count by 1 for multi-node jobs') 
     parser.add_argument('-c', '--cycle', help='Cycle workflow submission such that this number of workflows must finish completely before more are submitted. The optimal choice is usually the total number of workers (nodes * CPUs/node) divided by the number of tasks started by a single workflow')
     parser.set_defaults(local=False)
@@ -29,10 +31,26 @@ def entry_point(argv, wfe_class):
     with open(args.settings, 'r') as f:
         settings = json.load(f)
 
+    # If using daos, -r flag must be set:
+    if args.runinfo_dir is None and args.daos is True:
+        raise Exception("-r flag must be set when using daos")
+
+    # Set name of DAOS pool and container
+    if args.daos:
+        user_opts.update({'daos_pool':'gpu_hack',
+                            'daos_cont':'sbnd'})
+        settings['run']['daos'] = True
+    # Set runinfo dir with the -r flag; if not set, use the -o flag
+    if args.runinfo_dir is not None:
+        settings['run']['runinfo'] = args.runinfo_dir
+    elif args.output_dir is not None:
+        settings['run']['runinfo'] = args.output_dir
+
     if args.output_dir is not None:
         settings['run']['output'] = args.output_dir
 
-    runinfo_dir = pathlib.Path(settings['run']['output']) / 'runinfo'
+    # runinfo_dir should always be a path on the lustre filesystem, even if outputs are going to DAOS
+    runinfo_dir = pathlib.Path(args.runinfo_dir) / 'runinfo'
     user_opts['run_dir'] = str(runinfo_dir)
     runinfo_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,7 +106,7 @@ def entry_point(argv, wfe_class):
                 user_opts['nodes_per_block'] -= 1
 
 
-    parsl_config = create_parsl_config(user_opts, local=args.local)
+    parsl_config = create_parsl_config(user_opts, local=args.local, daos=args.daos)
     print(parsl_config)
     parsl.clear()
 

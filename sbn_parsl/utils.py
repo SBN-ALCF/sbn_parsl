@@ -96,7 +96,7 @@ def _worker_init(spack_top=None, spack_version='', software='sbndcode', mps: boo
     return '&&'.join(cmds)
 
 
-def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=False):
+def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=False, daos: bool=False):
     mps = 'polaris' in system_opts['hostname']
     if len(spack_opts) >= 2:
         spack_top = spack_opts[0]
@@ -108,7 +108,18 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
 
     # extra command to change directory to run_dir (prevent home from filling up with junk temp files)
     rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
-    cwd_cmd = f'mkdir -p {rundir_path}&&cd {rundir_path}'
+
+    daos_cmd = ''
+    if daos:
+        daos_pool = user_opts['daos_pool']
+        daos_cont = user_opts['daos_cont']
+        daos_cmds = [
+                'module use /soft/modulefiles',
+                'module load daos',
+                f'launch-dfuse.sh {daos_pool}:{daos_cont}',
+        ]
+        daos_cmd = "&&".join(daos_cmds)
+    cwd_cmd = f'{daos_cmd}&&mkdir -p {rundir_path}&&cd {rundir_path}'
 
     if local:
         # user has allocated the job. Just launch
@@ -207,15 +218,20 @@ def create_default_useropts(**kwargs):
     return user_opts
 
 
-def create_parsl_config(user_opts, spack_opts=[], local: bool=False):
+def create_parsl_config(user_opts, spack_opts=[], local: bool=False, daos: bool=False):
     hostname = socket.gethostname()
     system_opts = None
     if 'polaris' in hostname or hostname.startswith('x3'):
         system_opts = POLARIS_OPTS
     elif 'aurora' in hostname or hostname.startswith('x4'):
         system_opts = AURORA_OPTS
+        # add daos to filesystem options if needed:
+        if daos:
+            system_opts['pbs'] += ':daos_user_fs'
+            system_opts['scheduler'] += ':daos_user_fs'
+            
 
-    provider = create_provider_by_hostname(user_opts, system_opts, spack_opts, local)
+    provider = create_provider_by_hostname(user_opts, system_opts, spack_opts, local, daos)
     executor = create_executor_by_hostname(user_opts, system_opts, provider)
     checkpoints = get_all_checkpoints(user_opts["run_dir"])
     config = Config(

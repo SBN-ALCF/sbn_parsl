@@ -28,6 +28,41 @@ python sbnd_mc.py sbnd_mc_particlebomb_512nodes.json -o $PWD/outputs
 ctl-a d # detach
 screen -r sbnd # reattach
 ```
+### DAOS setup
+
+If also using DAOS to write outputs, create a DAOS container within your project pool.
+
+To setup a DAOS container `sbnd` in DAOS pool `gpu_hack`:
+```
+module use /soft/modulefiles
+module load daos
+
+daos container create --type=POSIX  --chunk-size=2097152  --properties=rd_fac:3,ec_cell_sz:131072,cksum:crc32,srv_cksum:on --file-oclass=EC_16P3G32 --dir-oclass=RP_4G1 gpu_hack sbnd
+daos cont list gpu_hack
+daos container get-prop gpu_hack sbnd
+```
+See ALCF docs for more information:
+https://docs.alcf.anl.gov/aurora/data-management/daos/daos-overview/?h=daos#pool
+
+To mount the container on any node (uan or compute):
+```
+module use /soft/modulefiles
+module load daos
+
+# When working on uan node, include ${USER} in path, on compute nodes, not necessary
+mkdir -p /tmp/${USER}/gpu_hack/sbnd
+start-dfuse.sh -m /tmp/${USER}/gpu_hack/sbnd --pool gpu_hack --cont sbnd # To mount
+mount | grep dfuse # to check mount
+ls /tmp/${USER}/gpu_hack/sbnd # to see contents
+```
+
+To launch workflow and write outputs to DAOS, use this command:
+```
+python sbnd_mc.py sbnd_mc_particlebomb_512nodes.json --daos -o /tmp/gpu_hack/sbnd/$PWD/outputs -r $PWD/outputs
+```
+For this example, the `runinfo` directory with parsl logging will be written to `$PWD/outputs` on lustre and workers running `lar` will write to `/tmp/gpu_hack/sbnd/$PWD/outputs` on compute nodes.
+
+Note that with how the DAOS container is mounted on compute nodes at scale with `launch-dfuse.sh`, the container will be at the path `/tmp/gpu_hack/sbnd` on the compute nodes.
 
 ## Outputs
 
