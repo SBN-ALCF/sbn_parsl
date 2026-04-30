@@ -39,7 +39,7 @@ def entry_point(argv, wfe_class):
     if args.daos:
         user_opts.update({'daos_pool':'gpu_hack',
                             'daos_cont':'sbnd'})
-
+        settings['run']['daos'] = True
     # Set runinfo dir with the -r flag; if not set, use the -o flag
     if args.runinfo_dir is not None:
         settings['run']['runinfo'] = args.runinfo_dir

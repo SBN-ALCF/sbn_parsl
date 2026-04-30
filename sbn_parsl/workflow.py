@@ -543,8 +543,19 @@ class WorkflowExecutor:
         self.run_opts = settings['run']
         self.runinfo_dir = pathlib.Path(self.run_opts['runinfo'])
         self.output_dir = pathlib.Path(self.run_opts['output'])
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
 
+            print(f"{settings['run'].keys()=}")
+            if 'daos' in settings['run'].keys():
+                daos_container_dir = str(self.output_dir)
+                username = os.getenv('USER')
+                daos_container_dir = pathlib.Path(daos_container_dir.replace("/tmp",f"/tmp/{username}"))
+                print(f"{daos_container_dir=}")
+                daos_container_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                raise
         self.max_futures = self.run_opts['max_futures']
         self._future_limit = True
         if self.max_futures < 0:
