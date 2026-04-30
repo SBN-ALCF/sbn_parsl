@@ -587,9 +587,6 @@ class WorkflowExecutor:
 
         db_file = self.runinfo_dir / 'runinfo' / 'cmd' / f'file_cache_{db_suffix}.db'
         print(f'Cache will be saved to {db_file}')
-        print(f'{self.runinfo_dir=}')
-        print(f"{db_file=}")
-        print(f"{db_file.parent=}")
         db_file.parent.mkdir(exist_ok=True)
         self._disk_db = sqlite3.connect(str(db_file))
         self._mem_db = sqlite3.connect(":memory:")

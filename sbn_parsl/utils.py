@@ -45,11 +45,11 @@ def aurora_affinity(per_worker: int=1, ncpus: int=-1):
 AURORA_OPTS = {
     'hostname': 'aurora',
     'ncpus': 208,
-    'scheduler': '#PBS -l filesystems=home:flare:daos_user_fs',
+    'scheduler': '#PBS -l filesystems=home:flare',
     'launcher': '--ppn 1',
     'cpu_affinity': aurora_affinity(per_worker=1),
     'available_accelerators': 102,
-    'pbs': 'filesystems=home:flare:daos_user_fs'
+    'pbs': 'filesystems=home:flare'
 }
     # 'available_accelerators': list(itertools.chain.from_iterable([[f'{gid}.{tid}'] * 4 for gid in range(6) for tid in range(2)]))
 
@@ -113,10 +113,12 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
 
     daos_cmd = ''
     if daos:
+        daos_pool = user_opts['daos_pool']
+        daos_cont = user_opts['daos_cont']
         daos_cmds = [
                 'module use /soft/modulefiles',
                 'module load daos',
-                'launch-dfuse.sh datascience:sbnd',
+                f'launch-dfuse.sh {daos_pool}:{daos_cont}',
         ]
         daos_cmd = "&&".join(daos_cmds)
     cwd_cmd = f'{daos_cmd}&&mkdir -p {rundir_path}&&cd {rundir_path}'
@@ -211,6 +213,11 @@ def create_parsl_config(user_opts, spack_opts=[], local: bool=False, daos: bool=
         system_opts = POLARIS_OPTS
     elif 'aurora' in hostname or hostname.startswith('x4'):
         system_opts = AURORA_OPTS
+        # add daos to filesystem options if needed:
+        if daos:
+            system_opts['pbs'] += ':daos_user_fs'
+            system_opts['scheduler'] += ':daos_user_fs'
+            
 
     provider = create_provider_by_hostname(user_opts, system_opts, spack_opts, local, daos)
     executor = create_executor_by_hostname(user_opts, system_opts, provider)

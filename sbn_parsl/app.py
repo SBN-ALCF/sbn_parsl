@@ -31,12 +31,23 @@ def entry_point(argv, wfe_class):
     with open(args.settings, 'r') as f:
         settings = json.load(f)
 
+    # If using daos, -r flag must be set:
+    if args.runinfo_dir is None and args.daos is True:
+        raise Exception("-r flag must be set when using daos")
+
+    # Set name of DAOS pool and container
+    if args.daos:
+        user_opts.update({'daos_pool':'gpu_hack',
+                            'daos_cont':'sbnd'})
+
+    # Set runinfo dir with the -r flag; if not set, use the -o flag
     if args.runinfo_dir is not None:
         settings['run']['runinfo'] = args.runinfo_dir
+    elif args.output_dir is not None:
+        settings['run']['runinfo'] = args.output_dir
 
     if args.output_dir is not None:
         settings['run']['output'] = args.output_dir
-
 
     # runinfo_dir should always be a path on the lustre filesystem, even if outputs are going to DAOS
     runinfo_dir = pathlib.Path(args.runinfo_dir) / 'runinfo'
@@ -95,7 +106,6 @@ def entry_point(argv, wfe_class):
     print(parsl_config)
     parsl.clear()
 
-    print(f'{settings=}')
     with parsl.load(parsl_config) as dfk:
         apply_hacks(dfk)
         wfe = wfe_class(settings)
