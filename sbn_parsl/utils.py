@@ -111,7 +111,7 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
     # extra command to change directory to run_dir (prevent home from filling up with junk temp files)
     rundir_path = pathlib.Path(user_opts['run_dir']) / 'cmd'
 
-    daos_cmd = ''
+    cwd_cmd = f'mkdir -p {rundir_path}&&cd {rundir_path}'
     if daos:
         daos_pool = user_opts['daos_pool']
         daos_cont = user_opts['daos_cont']
@@ -121,7 +121,7 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
                 f'launch-dfuse.sh {daos_pool}:{daos_cont}',
         ]
         daos_cmd = "&&".join(daos_cmds)
-    cwd_cmd = f'{daos_cmd}&&mkdir -p {rundir_path}&&cd {rundir_path}'
+        cwd_cmd = f'{daos_cmd}&&{cwd_cmd}'
 
     if local:
         # user has allocated the job. Just launch
