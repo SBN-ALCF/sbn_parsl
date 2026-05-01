@@ -37,7 +37,7 @@ To setup a DAOS container `sbnd` in DAOS pool `gpu_hack`:
 module use /soft/modulefiles
 module load daos
 
-daos container create --type=POSIX gpu_hack sbnd
+daos container create --type=POSIX  --chunk-size=2097152  --properties=rd_fac:3,ec_cell_sz:131072,cksum:crc32,srv_cksum:on --file-oclass=EC_16P3G32 --dir-oclass=RP_4G1 gpu_hack sbnd
 daos cont list gpu_hack
 daos container get-prop gpu_hack sbnd
 ```
