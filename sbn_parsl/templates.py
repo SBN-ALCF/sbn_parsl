@@ -227,6 +227,10 @@ singularity run $MNT_ARG {{container}} <<EOF
     echo \${{{{FCL_LIST[@]}}}}
     {FIND_FCL_CONTAINER}
     for fcl in \${{{{FCL_LIST[@]}}}}; do
+        if [ -f ./\$fcl ]; then
+            echo "removing local fcl \$fcl"
+            rm ./\$fcl
+        fi
         fhicl_from_env=\$(find_fcl \$fcl)
         echo "fhicl_from_env=\$fhicl_from_env"
         if [ -f \$fhicl_from_env ]; then
@@ -236,6 +240,19 @@ singularity run $MNT_ARG {{container}} <<EOF
         fi
     done
     # export LOCAL_FCL=\$(basename {{fhicl}})
+
+    old_idata="/lus/flare/projects/neutrinoGPU/scisoft/larsoft/icarus_data/v10_06_03"
+    new_idata="/tmp/icarus_data/v10_06_03"
+    old_sdata="/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbnd_data/v01_41_00"
+    new_sdata="/tmp/sbnd_data/v01_41_00"
+
+    # Apply replacement to all environment variables
+    while IFS='=' read -r name value; do
+      new_value=\${{{{value//\$old_idata/\$new_idata}}}}
+      new_value=\${{{{new_value//\$old_sdata/\$new_sdata}}}}
+      [ "\$new_value" != "\$value" ] && export "\$name=\$new_value"
+    done < <(env)
+
     {{pre_job_hook}}
 
     # echo "LOCAL_FCL=\$LOCAL_FCL"
