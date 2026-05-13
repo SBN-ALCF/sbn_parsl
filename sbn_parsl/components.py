@@ -114,7 +114,13 @@ def build_larsoft_cmd(context: RunContext) -> str:
     except KeyError:
         pass
 
-    return f'lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip} --tmpdir=/tmp'
+    prof_cmd = ''
+    '''
+    if context.stage.stage_id_str == '0_0':
+        prof_cmd = 'source /lus/flare/projects/neutrinoGPU/twester/hpctoolkit/setup.sh && hpcrun -t '
+    '''
+
+    return f'{prof_cmd}lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip} --tmpdir=/tmp'
 
 
 def _transfer_ids(stage: Stage, future):
@@ -172,6 +178,7 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     Extra kwargs will override larsoft options
     """
 
+    # print(f'running stage of type {self.stage_type.name}')
     lar_opts = executor.larsoft_opts.copy()
 
     # source a pre-computed environment instead of using larsoft setup script
@@ -181,6 +188,11 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     lar_opts.setdefault('flux_path', 'fluxFiles/bnb/G4BNB/v1.1.1/fhc/a')
     lar_opts.setdefault('flux_files', 'NuBeam_production_BooNE_50m_I174000A_*.dk2nu.root')
     lar_opts.setdefault('flux_type', 'dk2nu')
+    lar_opts.setdefault('overlays', [])
+    overlay_str = ''
+    if lar_opts['overlays']:
+        overlay_str = ' '.join(['--overlay', ','.join(f'{overlay}:ro' for overlay in lar_opts['overlays'])])
+    lar_opts.setdefault('overlay_str', overlay_str)
     lar_opts.update(kwargs)
 
     # first stage for file workflows will have a string or path as input
@@ -188,10 +200,11 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     if not isinstance(inputs, list):
         inputs = [[inputs], [], '']
     else:
-        if len(inputs) == 1:
+        if len(inputs) < 3:
             inputs = [inputs, [], '']
-
-    # print(f'submit stage of type {self.stage_type.name}')
+        else:
+            if not isinstance(inputs[1], list):
+                inputs = [inputs, [], '']
 
     input_files = list(itertools.chain.from_iterable(inputs[0::3]))
     # if we pass in pathlib Paths, parsl will complain that it can't memoize
@@ -231,13 +244,15 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     # output_file = executor.output_dir / output_filename_func(self, first_file_name, fcl, label, executor.name_salt, lar_opts)
     context.output_file = output_filename_func(context)
 
-    if executor.stage_in_db(self.stage_id_str, require_success=False):
+    if executor.stage_in_db(self.stage_id_str, require_success=True):
         executor._skip_counter += 1
         return [[context.output_file], [], '']
 
+    '''
     if context.output_file.is_file():
         executor._skip_counter += 1
         return [[context.output_file], [], '']
+    '''
 
     executor._stage_counter += 1
 
@@ -260,6 +275,9 @@ def larsoft_runfunc(self, fcl, inputs, run_dir, template, executor, meta=None, l
     if last_file is not None:
         # dummy input is a list containing a parsl datafuture
         dummy_input = last_file[0]
+    if hasattr(context.stage, "dependency"):
+        if context.stage.dependency is not None:
+            dummy_input += context.stage.dependency.output_files[0]
     input_arg = [str(fcl)] + dummy_input + input_files + depends
 
     # metadata & fcl manipulation

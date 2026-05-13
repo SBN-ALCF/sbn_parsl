@@ -38,7 +38,7 @@ if [ $host == "polaris" ]; then
 fi
 module load apptainer
 if [ $host == "aurora" ]; then
-    export MNT_ARG="-B /lus/flare"
+    export MNT_ARG="-B /lus/flare/projects/neutrinoGPU/larsoft_hpc/envs -B /lus/flare/projects/neutrinoGPU/larsoft_hpc/tools -B /lus/flare/projects/neutrinoGPU/simulation_inputs_striped -B /lus/flare/projects/neutrinoGPU/icarus -B /lus/flare/projects/neutrinoGPU/twester"
     module load fuse-overlayfs
 fi
 '''
@@ -238,52 +238,75 @@ echo "CONTAINTER $(date +%s) $(hostname)"
 echo "Load singularity"
 {CONTAINER_INIT}
 set -e
-singularity run $MNT_ARG {{container}} <<EOF
-    echo "ENV \$(date +%s) \$(hostname)"
-    echo "Running in: "
-    pwd
-    echo "Sourcing products area"
-    {PROXY}
-    export EXPERIMENT={{experiment}}
-    if [ "{{env_file}}x" != "x" ]; then
-        echo "Sourcing environment from {{env_file}}"
-        source {{env_file}}
-    else
-        echo "Sourcing environment from {{larsoft_top}}"
-        source {{larsoft_top}}/setup && setup {{software}} {{version}} -q {{qual}};
-    fi
-    export PATH=/lus/flare/projects/neutrinoGPU/scisoft/larsoft/gcc/v12_1_0/Linux64bit+3.10-2.17/libexec/gcc/x86_64-pc-linux-gnu/12.1.0:\$PATH
-    echo "FHICL \$(date +%s) \$(hostname)"
-    # get the fcls
-    FCL_LIST=\$(sed -n -e 's/.*-c\ \(.*fcl\).*/\\1/p' <( echo "{{cmd}}" ))
-    echo \${{{{FCL_LIST[@]}}}}
-    {FIND_FCL_CONTAINER}
-    for fcl in \${{{{FCL_LIST[@]}}}}; do
-        if [ -f ./\$fcl ]; then
-            echo "removing local fcl \$fcl"
-            rm ./\$fcl
-        fi
-        fhicl_from_env=\$(find_fcl \$fcl)
-        echo "fhicl_from_env=\$fhicl_from_env"
-        if [ -f \$fhicl_from_env ]; then
-            cp \$fhicl_from_env {{workdir}}/
+
+# spread out container starts
+# sometimes containe can fail to mount with squashfuse_ll
+sleep $(( $RANDOM % 30 ))
+MAX_RETRIES=3
+attempt=0
+
+while [ $attempt -lt $MAX_RETRIES ]; do
+    singularity run {{overlay_str}} $MNT_ARG {{container}} <<EOF
+        echo "ENV \$(date +%s) \$(hostname)"
+        echo "Running in: "
+        pwd
+        echo "Sourcing products area"
+        {PROXY}
+        export EXPERIMENT={{experiment}}
+        if [ "{{env_file}}x" != "x" ]; then
+            echo "Sourcing environment from {{env_file}}"
+            source {{env_file}}
         else
-            echo "Could not find fcl \$fcl! Expect subsequent commands to fail."
+            echo "Sourcing environment from {{larsoft_top}}"
+            source {{larsoft_top}}/setup && setup {{software}} {{version}} -q {{qual}};
         fi
-    done
+        export PATH=/lus/flare/projects/neutrinoGPU/scisoft/larsoft/gcc/v12_1_0/Linux64bit+3.10-2.17/libexec/gcc/x86_64-pc-linux-gnu/12.1.0:\$PATH
 
-    {REPLACE_PKG_WITH_TMP}
-    replace_pkg_env_vars sbndcode sbnd_data icaruscode icarus_data
+        {REPLACE_PKG_WITH_TMP}
+        replace_pkg_env_vars sbndcode sbnd_data icaruscode icarus_data
 
-    echo "HOOK \$(date +%s) \$(hostname)"
-    {{pre_job_hook}}
+        echo "FHICL \$(date +%s) \$(hostname)"
+        # get the fcls
+        FCL_LIST=\$(sed -n -e 's/.*-c\ \(.*fcl\).*/\\1/p' <( echo "{{cmd}}" ))
+        echo \${{{{FCL_LIST[@]}}}}
+        {FIND_FCL_CONTAINER}
+        for fcl in \${{{{FCL_LIST[@]}}}}; do
+            if [ -f ./\$fcl ]; then
+                echo "removing local fcl \$fcl"
+                rm ./\$fcl
+            fi
+            fhicl_from_env=\$(find_fcl \$fcl)
+            echo "fhicl_from_env=\$fhicl_from_env"
+            if [ -f \$fhicl_from_env ]; then
+                cp \$fhicl_from_env {{workdir}}/
+            else
+                echo "Could not find fcl \$fcl! Expect subsequent commands to fail."
+            fi
+        done
 
-    set -e
-    echo "About to run larsoft"
-    echo "LAR \$(date +%s) \$(hostname)"
-    {{cmd}}
-    set +e
+
+        echo "HOOK \$(date +%s) \$(hostname)"
+        {{pre_job_hook}}
+
+        set -e
+        echo "About to run larsoft"
+        echo "LAR \$(date +%s) \$(hostname)"
+        {{cmd}}
+        set +e
 EOF
+    exit_code=$?
+
+    if [ $exit_code -eq 255 ]; then
+        attempt=$((attempt + 1))
+
+        sleep_time=$(( (2 ** attempt) * 5 + (RANDOM % 10) ))
+
+        echo "Caught exit code 255. Retry $attempt/$MAX_RETRIES in $sleep_time s..."
+        sleep $sleep_time
+    else
+        break
+    fi
+done
 
 echo "CLEAN $(date +%s) $(hostname)"
 echo "cp *.root $(dirname {{output}}) || true"

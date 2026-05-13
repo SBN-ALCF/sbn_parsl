@@ -50,7 +50,7 @@ def entry_point(argv, wfe_class):
         settings['run']['output'] = args.output_dir
 
     # runinfo_dir should always be a path on the lustre filesystem, even if outputs are going to DAOS
-    runinfo_dir = pathlib.Path(args.runinfo_dir) / 'runinfo'
+    runinfo_dir = pathlib.Path(settings['run']['runinfo']) / 'runinfo'
     user_opts['run_dir'] = str(runinfo_dir)
     runinfo_dir.mkdir(parents=True, exist_ok=True)
 
@@ -147,7 +147,7 @@ EOL
 chmod u+x cmd_$JOBNAME.sh
 
 # line buffer to get logs faster
-./cmd_$JOBNAME.sh > {{cmd_dir}}/sbn_parsl.log
+./cmd_$JOBNAME.sh
 
 [[ "1" == "1" ]] && echo "All done"
 '''

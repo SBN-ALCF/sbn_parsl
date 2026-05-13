@@ -118,8 +118,8 @@ def create_provider_by_hostname(user_opts, system_opts, spack_opts, local: bool=
                 'module load daos',
                 f'launch-dfuse.sh {daos_pool}:{daos_cont}',
         ]
-        daos_cmd = "&&".join(daos_cmds)
-    cwd_cmd = f'{daos_cmd}&&mkdir -p {rundir_path}&&cd {rundir_path}'
+        daos_cmd = "&&".join(daos_cmds) + '&&'
+    cwd_cmd = f'{daos_cmd}mkdir -p {rundir_path}&&cd {rundir_path}'
 
     if local:
         # user has allocated the job. Just launch
@@ -167,8 +167,12 @@ def create_executor_by_hostname(user_opts, system_opts, provider):
             pkg_path = pathlib.Path(pkg_path)
             if not pkg_path.is_file():
                 raise RuntimeError(f'LArSoft package {pkg_name} has invalid path {pkg_path}')
-            dest_path = pathlib.PurePosixPath('/tmp', pkg_path.name)
-            tar_cmds.append(f'cp {pkg_path} /tmp && tar -xf {dest_path} -C /tmp && rm -f {dest_path}')
+            dest_path = pathlib.PurePosixPath('/tmp')
+            tarball_path = pathlib.PurePosixPath('/tmp', pkg_path.name)
+            if pkg_name == 'root':
+                tar_cmds.append('mkdir -p /tmp/root_lib')
+                dest_path = pathlib.PurePosixPath('/tmp', 'root_lib')
+            tar_cmds.append(f'cp {pkg_path} /tmp && tar -xf {tarball_path} -C {dest_path} && rm -f {tarball_path}')
         init_cmd += '\n' + '\n'.join(tar_cmds)
 
     return HighThroughputExecutor(
