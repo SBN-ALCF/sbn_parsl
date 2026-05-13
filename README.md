@@ -1,156 +1,136 @@
-# sbnd_parsl
+# sbn_parsl
 
-Classes and functions for running SBND workflows on Polaris at ALCF.
+Classes and functions for running LArSoft workflows with Parsl on HPC clusters (e.g., Polaris and Aurora at ALCF).
 
 ## Installation
 
 To install an editable version in a conda environment, use
-```
+```bash
 conda develop .
 ```
 
 If using a Python virtual environment with `pip`, use
 
-```
+```bash
 pip install -e .
 ```
 
 ## Usage
 
-`sbnd_parsl` provides a three-level class structure for structuring job submission:
+`sbn_parsl` provides a structured workflow execution framework using three primary levels of organization:
 
-- `Stage` objects for handling individual tasks, e.g., optionally modifying & running a single FCL file
-- `Workflow` objects for composing multiple stages together with dependencies on the outputs of other stages
-- `WorkflowExecutor` objects for configuring workflows from user settings, and executing multiple copies of a Workflow for scaling to large jobs
+- **`Stage`**: Represents a single step or task within the workflow (e.g., generating events, running Geant4, executing a specific FCL file).
+- **`Workflow`**: Composes multiple `Stage` objects together, defining the execution order and dependencies.
+- **`LArSoftExecutor`**: Uses `parsl` to configure workflows based on a strongly typed TOML settings schema and automatically maps outputs to inputs based on the FCL files. 
 
 ### Basic Example
 
-Below, we set up a `WorkflowExecutor` and implement its `setup_single_workflow` function:
+`sbn_parsl` now strictly uses TOML configuration files mapped to Python `dataclasses`.
+
+#### 1. Configuration (`settings.toml`)
+
+```toml
+[run]
+nsubruns = 2
+
+[larsoft]
+experiment = "sbnd"
+version = "v1"
+qual = "e26:prof"
+
+[fcls]
+gen = "gen.fcl"
+g4 = "g4.fcl"
+detsim = "detsim.fcl"
+```
+
+#### 2. Workflow Script (`my_workflow.py`)
+
+Below is a Minimum Working Example (MWE) showing how to set up a `LArSoftExecutor` using the new typed configuration:
 
 ```python
 #!/usr/bin/env python3
-import pathlib
+import sys
+from sbn_parsl.workflow import StageType, Stage, Workflow, LArSoftExecutor, StageResult
+from sbn_parsl.app import entry_point, parse_arguments
 
-from sbnd_parsl.workflow import DefaultStageTypes, Stage, Workflow, WorkflowExecutor
+class SimpleWorkflowExecutor(LArSoftExecutor):
+    """A minimal executor to run GEN -> G4 -> DETSIM"""
+    
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        # We can dynamically define the order of stages based on the FCL keys in TOML
+        self.stage_order = [StageType.from_str(k) for k in self.fcls.keys()]
 
-
-class SimpleWorkflowExecutor(WorkflowExecutor):
-    def __init__(self, settings):
-        super().__init__(settings)
-
-    def setup_single_workflow(self, iteration):
-        stage_order = [DefaultStageTypes.GEN, DefaultStageTypes.G4, DefaultStageTypes.DETSIM]
-
-        workflow = Workflow(stage_order, self.fcls)
-        s = Stage(DefaultStageTypes.DETSIM)
-        s.run_dir = str(pathlib.Path(self.run_opts['output']) / str(iteration))
-
-        # workflow will automatically fill in g4 and gen stages, with
-        # run_dir inherited from detsim stage
+    def setup_single_workflow(self, iteration: int, inputs=None, last_file=None):
+        workflow = Workflow(self.stage_order, default_fcls=self.fcls)
+        
+        # We just need to define the final stage in our desired order.
+        # sbn_parsl will automatically build the parent dependency tree backwards.
+        s = Stage(StageType.from_str("detsim"))
+        s.run_dir = self.output_dir / f"subrun_{iteration:04d}"
+        
         workflow.add_final_stage(s)
-
         return workflow
 
-
-def main(settings):
-    wfe = SimpleWorkflowExecutor(settings)
-    wfe.execute()
-
 if __name__ == '__main__':
-    settings = {
-        'run': {
-            'output': 'output',
-            'fclpath': 'fcls',
-            'nsubruns': 10,
-            'max_futures': 10
-        },
-        'larsoft': {},
-        'fcls': {
-            'gen': 'gen.fcl',
-            'g4': 'g4.fcl',
-            'detsim': 'detsim.fcl'
-        },
-        'queue': {},
-        'workflow': {}
-    }
-    # or load from a JSON file
-
-    main(settings)
+    # Parse CLI overrides (like -o for output, --local for local execution)
+    args = parse_arguments(sys.argv)
+    
+    # Hand off execution to sbn_parsl to build Parsl configs and run workflows
+    entry_point(args, SimpleWorkflowExecutor)
 ```
 
-Running the above code will print some dummy output showing the sequence of
-commands required to generate the `DETSIM` stage:
-```
-lar -c gen.fcl  --output output/gen.root
-lar -c g4.fcl -s output/gen.root --output output/g4.root
-lar -c detsim.fcl -s output/g4.root --output output/detsim.root
+Running the above script:
+```bash
+python my_workflow.py settings.toml -o ./output/
 ```
 
-### Adding Parsl
+### Implementing Custom Runfuncs
 
-To submit work with Parsl, you need to assign a `runfunc` for at least the
-final `Stage` added to the `Workflow`. Runfuncs for SBND and ICARUS data &
-simulation workflows are provided within the `sbn_parsl.components` module, so
-users may not need to implement these themsevles. The `runfunc` must have the
-minimal function signature in the extended example below, and should return a
-list of Parsl `File` objects. 
+To customize how a stage behaves during execution, you can define your own `runfunc`. A `runfunc` takes the current `Stage` instance, the FCL file path, the `StageResult` containing inputs/dependencies from its parent, and the output directory.
+
+**A `runfunc` must return a `StageResult` object containing its outputs.**
 
 ```python
-...
-from parsl.data_provider.files import File
-from parsl.app.app import bash_app
+import functools
+from sbn_parsl.workflow import StageResult
 
-@bash_app(cache=True)
-def fcl_future(inputs=[], outputs=[]):
-    """Return a shell script containing the commands to run LArSoft and produce
-    the output file from the arguments."""
-    my_bash_script = ...
-    return my_bash_script
+def my_runfunc(self, fcl, parent_result: StageResult, output_dir, executor: LArSoftExecutor) -> StageResult:
+    """A custom function to execute a LArSoft bash command via parsl."""
+    
+    input_files = parent_result.outputs
+    # E.g. build a custom command using executor.cfg ...
+    
+    output_filepath = output_dir / f"custom_{fcl.replace('.fcl', '.root')}"
+    
+    # Normally you'd submit a Parsl @bash_app here and return its Future.
+    # future = fcl_future(outputs=[File(str(output_filepath))])
+    # return StageResult(outputs=future.outputs)
 
-def runfunc(self, fcl, input_files, output_dir):
-    output_file = File(...) # user specifies the filename
-    future = fcl_future(outputs=[output_file])
-    return future.outputs
+    return StageResult(outputs=[output_filepath])
 
-...
-class SimpleWorkflowExecutor(WorkflowExecutor):
-    def __init__(self, settings):
-        super().__init__(settings)
-
-    def setup_workflow(self):
-        stage_order = [StageType.GEN, StageType.G4, StageType.DETSIM]
-
-        self.workflow = Workflow(stage_order, self.fcls)
-        s = Stage(StageType.DETSIM)
-        s.run_dir = self.run_opts['output']
->>>     s.runfunc = runfunc
-...
+class SimpleWorkflowExecutor(LArSoftExecutor):
+    ...
+    def setup_single_workflow(self, iteration: int, inputs=None, last_file=None):
+        ...
+        s = Stage(StageType.from_str("detsim"))
+        
+        # Bind the custom runfunc to this stage
+        s.runfunc = functools.partial(my_runfunc, executor=self) 
+        ...
 ```
 
-Note that `runfunc` function takes `self` as the first argument, despite being
-defined in the global scope. `sbnd_parsl` sets up the appropriate bindings at
-runtime so that `runfunc` can access the member variables and functions of the
-`Stage` it is bound to. This is useful to add logic based on the stage's type
-or `.fcl` file.
+### Overriding Configuration from CLI
+The configuration system natively supports bypassing properties from the command line:
 
-### Passing extra arguments to `runfunc`
+```bash
+# Run over 50 subruns, overriding the TOML default
+python my_workflow.py settings.toml -o ./out/ --nsubruns 50 
 
-You can extend `runfunc` with arbitrary arguments while preserving the function
-signature using `functools.partial`. Below, we modify `runfunc` from the
-original example to pass the `WorkflowExecutor` object as an extra argument.
-This allows us to access the user settings within `runfunc`:
+# Ignore site defaults and use specific queue settings
+python my_workflow.py settings.toml -o ./out/ -A my_allocation -q debug -t 01:00:00
 
-```Python
-import functools
-
-def my_runfunc(self, fcl, input_files, output_dir, executor):
-    output_filepath = executor.output_dir
-    ...
-
-class SimpleWorkflowExecutor(WorkflowExecutor):
-    ...
-
-    def setup_workflow(self):
-        ...
->>>     s.runfunc = functools.partial(my_runfunc, executor=self) 
+# Execute entirely locally (e.g. on a login node or local server) without PBS 
+python my_workflow.py settings.toml -o ./out/ --local
 ```

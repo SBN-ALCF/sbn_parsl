@@ -23,4 +23,3 @@ def id_for_memo_File(f, output_ref=False):
             return [f.url, stat_result.st_size, stat_result.st_mtime]
         except:
             return [f.url, 0, 0]
-

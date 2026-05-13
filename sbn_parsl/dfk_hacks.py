@@ -11,26 +11,32 @@ Hack description:
    the check_memo function to remove entries from the memo_lookup_table if no
    other tasks depend on them. This helps free the futures in the table.
 """
+
 import logging
 
 from concurrent.futures import Future
 from types import MethodType
 
-from parsl.app.futures import DataFuture
+from parsl.dataflow.memoization import make_hash
 from parsl.data_provider.staging import Staging
-from parsl.data_provider.files import File
 from parsl.data_provider.zip import ZipFileStaging
 from parsl.data_provider.file_noop import NoOpFileStaging
 from parsl.data_provider.ftp import FTPSeparateTaskStaging
 from parsl.data_provider.http import HTTPSeparateTaskStaging
-from typing import TYPE_CHECKING, Any, Callable, List, Optional
-if TYPE_CHECKING:
-    from parsl.dataflow.dflow import DataFlowKernel
+from typing import TYPE_CHECKING, List
 
-logger = logging.getLogger('parsl.dataflow.memoization')
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger("parsl.dataflow.memoization")
 
 default_staging: List[Staging]
-default_staging = [NoOpFileStaging(), FTPSeparateTaskStaging(), HTTPSeparateTaskStaging(), ZipFileStaging()]
+default_staging = [
+    NoOpFileStaging(),
+    FTPSeparateTaskStaging(),
+    HTTPSeparateTaskStaging(),
+    ZipFileStaging(),
+]
 
 
 class ResultFuture(Future):
@@ -46,24 +52,30 @@ def my_update_memo(self, task) -> None:
     contains references to the parent AppFutures, preventing them from being
     garbage collected otherwise.
     """
-    task_id = task['id']
-    r = task['app_fu']
+    task_id = task["id"]
+    r = task["app_fu"]
 
-    if not self.memoize or not task['memoize'] or 'hashsum' not in task:
+    if not self.memoize or not task["memoize"] or "hashsum" not in task:
         return
 
-    if not isinstance(task['hashsum'], str):
-        logger.error("Attempting to update app cache entry but hashsum is not a string key")
+    if not isinstance(task["hashsum"], str):
+        logger.error(
+            "Attempting to update app cache entry but hashsum is not a string key"
+        )
         return
 
-    if task['hashsum'] in self.memo_lookup_table:
-        logger.info(f"Replacing app cache entry {task['hashsum']} with result from task {task_id}")
-        self.memo_lookup_table[task['hashsum']] = r
+    if task["hashsum"] in self.memo_lookup_table:
+        logger.info(
+            f"Replacing app cache entry {task['hashsum']} with result from task {task_id}"
+        )
+        self.memo_lookup_table[task["hashsum"]] = r
     else:
-        logger.info(f"Storing app cache entry {task['hashsum']} with result from task {task_id}")
+        logger.info(
+            f"Storing app cache entry {task['hashsum']} with result from task {task_id}"
+        )
         new_future = ResultFuture(task_id)
         new_future.set_result(r.result())
-        self.memo_lookup_table[task['hashsum']] = new_future
+        self.memo_lookup_table[task["hashsum"]] = new_future
 
 
 def my_check_memo(self, task):
@@ -74,10 +86,10 @@ def my_check_memo(self, task):
 
     This assumes that no two tasks have the same dependent task!!!
     """
-    task_id = task['id']
+    task_id = task["id"]
 
-    if not self.memoize or not task['memoize']:
-        task['hashsum'] = None
+    if not self.memoize or not task["memoize"]:
+        task["hashsum"] = None
         logger.debug("Task {} will not be memoized".format(task_id))
         return None
 
@@ -87,24 +99,25 @@ def my_check_memo(self, task):
     if hashsum in self.memo_lookup_table:
         result = self.memo_lookup_table[hashsum]
         logger.debug("Task %s using result from cache", task_id)
-        logger.debug("Clearing dependencies of task %d (%d)", task_id, len(task['depends']))
+        logger.debug(
+            "Clearing dependencies of task %d (%d)", task_id, len(task["depends"])
+        )
         # find depends task hashes in memoizer & remove them
-        for df in task['depends']:
+        for df in task["depends"]:
             task_obj = df.parent.parent.task_record
             hhash = self.make_hash(task_obj)
             for thash, f in self.memo_lookup_table.items():
                 if thash == hhash:
-                    logger.debug('removing task with hash %s from cache', thash)
+                    logger.debug("removing task with hash %s from cache", thash)
                     del self.memo_lookup_table[thash]
                     break
     else:
         logger.info("Task %s had no result in cache", task_id)
 
-    task['hashsum'] = hashsum
+    task["hashsum"] = hashsum
 
     assert isinstance(result, Future) or result is None
     return result
-
 
 
 def apply_hacks(dfk, update_memo=True, check_memo=False):
@@ -112,7 +125,7 @@ def apply_hacks(dfk, update_memo=True, check_memo=False):
     if update_memo:
         func_update_memo = MethodType(my_update_memo, dfk.memoizer)
         dfk.memoizer.update_memo = func_update_memo
-    
+
     if check_memo:
         func_check_memo = MethodType(my_check_memo, dfk.memoizer)
         dfk.memoizer.check_memo = func_check_memo

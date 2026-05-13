@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 
-JOB_PRE = r'''
+JOB_PRE = r"""
 echo "START $(date +%s) $(hostname)"
 echo "Job starting!"
 pwd
 date
 hostname
-'''
+"""
 
 
-JOB_POST = r'''
+JOB_POST = r"""
 echo "Job finishing!"
 date
 echo "\nJob finished in: $(pwd)"
@@ -17,20 +17,20 @@ echo "Available files:"
 ls
 hostname
 echo "END $(date +%s) $(hostname)"
-'''
+"""
 
 # pick the CUDA device with the lowest memory utilization by assigning it to
 # CUDA_VISIBLE_DEVICES environment variable
 # note: ties broken randomly
-NVIDIA_BEST_CUDA = r'''
+NVIDIA_BEST_CUDA = r"""
 nvidia-smi
 BESTCUDA=$(python3 -c 'import gpustat;import numpy as np;stats=gpustat.GPUStatCollection.new_query();memory=np.array([gpu.memory_used for gpu in stats.gpus]);print(np.random.choice(np.flatnonzero(memory == memory.min())))')
 export CUDA_VISIBLE_DEVICES=$BESTCUDA
 echo GPU Selected
 echo $CUDA_VISIBLE_DEVICES
-'''
+"""
 
-CONTAINER_INIT = r'''
+CONTAINER_INIT = r"""
 host=$(hostname -d | sed 's/.*\.\(.*\)\.alcf\.anl\.gov/\1/g')
 if [ $host == "polaris" ]; then
     export MNT_ARG="-B /lus/grand -B /lus/eagle"
@@ -41,17 +41,17 @@ if [ $host == "aurora" ]; then
     export MNT_ARG="-B /lus/flare/projects/neutrinoGPU/larsoft_hpc/envs -B /lus/flare/projects/neutrinoGPU/larsoft_hpc/tools -B /lus/flare/projects/neutrinoGPU/simulation_inputs_striped -B /lus/flare/projects/neutrinoGPU/icarus -B /lus/flare/projects/neutrinoGPU/twester"
     module load fuse-overlayfs
 fi
-'''
+"""
 
-PROXY=r'''
+PROXY = r"""
 export http_proxy="http://proxy.alcf.anl.gov:3128"
 export https_proxy="http://proxy.alcf.anl.gov:3128"
 export ftp_proxy="http://proxy.alcf.anl.gov:3128"
-'''
+"""
 
 
 # define a function so the job can find the full path to fcl by name
-FIND_FCL = r'''
+FIND_FCL = r"""
 echo "Defining fcl lookup function"
 echo "FHICL_FILE_PATH=$FHICL_FILE_PATH"
 function find_fcl() {{
@@ -64,9 +64,9 @@ function find_fcl() {{
     # relative path or filename -- look up in FHICL_FILE_PATH
     echo $(IFS=:; find $FHICL_FILE_PATH -name $(basename "${{1}}") | head -n 1)
 }}
-'''
+"""
 
-FIND_FCL_CONTAINER = r'''
+FIND_FCL_CONTAINER = r"""
 echo "Defining fcl lookup function"
 echo "FHICL_FILE_PATH=\$FHICL_FILE_PATH"
 function find_fcl() {{
@@ -79,9 +79,9 @@ function find_fcl() {{
     # relative path or filename -- look up in FHICL_FILE_PATH
     echo \$(IFS=:; find \$FHICL_FILE_PATH -name \$(basename "\${{1}}") | head -n 1)
 }}
-'''
+"""
 
-REPLACE_PKG_WITH_TMP = r'''
+REPLACE_PKG_WITH_TMP = r"""
 replace_pkg_env_vars() {{
   # Accepts one or more lower-case package names as arguments
   # e.g., replace_pkg_env_vars sbnd_data sbndcode
@@ -104,11 +104,11 @@ replace_pkg_env_vars() {{
     done < <(env)
   done
 }}
-'''
+"""
 
 
 # this template additionally loads sbndata and expects "input" in the form of "-s file1 -s file2 ..."
-SPINE_TEMPLATE = rf'''
+SPINE_TEMPLATE = rf"""
 {JOB_PRE}
 cd {{workdir}}
 echo "Current directory: "
@@ -167,11 +167,11 @@ fi
 mv *.h5 $(dirname {{output}}) || true
 {{post_job_hook}}
 {JOB_POST}
-'''
+"""
 
 
 # execute a custom command
-CMD_TEMPLATE_SPACK = rf'''
+CMD_TEMPLATE_SPACK = rf"""
 {JOB_PRE}
 cd {{workdir}}
 echo "Current directory: "
@@ -222,10 +222,10 @@ mv *.root $(dirname {{output}}) || true
 
 {{post_job_hook}}
 {JOB_POST}
-'''
+"""
 
 
-CMD_TEMPLATE_CONTAINER = rf'''
+CMD_TEMPLATE_CONTAINER = rf"""
 {JOB_PRE}
 cd {{workdir}}
 echo "Current directory: "
@@ -317,4 +317,4 @@ cp *.json $(dirname {{output}}) && rm -f *.json || true
 
 {{post_job_hook}}
 {JOB_POST}
-'''
+"""
