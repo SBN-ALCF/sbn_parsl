@@ -1,7 +1,0 @@
-#include "cafmakerjob_sbnd_sce.fcl"
-
-physics.runprod: [rns, genieweight, fluxweight, @sequence::physics.runprod]
-physics.producers.cafmaker.SystWeightLabels: ["genieweight", "fluxweight"]
-
-physics.producers.cnnid.WireLabel: "simtpc2d:gauss"
-physics.producers.cnnid.PointIdAlg.NNetModelFile: "/lus/grand/projects/neutrinoGPU/software/larsoft_gpu/sbnd_data/v01_23_00/CNNHitClassification/CNNID_model.pb"

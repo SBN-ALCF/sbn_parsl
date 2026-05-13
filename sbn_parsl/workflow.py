@@ -39,6 +39,11 @@ from enum import Flag, auto
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional, Callable, Any
 
+# don't print error message if job times out
+from parsl.executors.high_throughput.errors import ManagerLost as ManagerLostError
+
+from sbn_parsl.config import Config
+
 
 @dataclass
 class StageResult:
@@ -48,14 +53,9 @@ class StageResult:
     This object is passed down to child stages so they know where to find their inputs
     and what commands need to be prefixed (e.g., when combining stages).
     """
-
     outputs: List[Any] = field(default_factory=list)
     dependencies: List[Any] = field(default_factory=list)
     command: str = ""
-
-
-# don't print error message if job times out
-from parsl.executors.high_throughput.errors import ManagerLost as ManagerLostError
 
 
 logger = logging.getLogger(__name__)
@@ -622,7 +622,6 @@ class Workflow:
         return self._stage._workflow_last_file
 
 
-from sbn_parsl.config import Config
 
 
 class WorkflowExecutor:
