@@ -1,0 +1,13 @@
+name = "polaris"
+cpus_per_node = 32
+cores_per_worker = 1
+container_path = "/lus/flare/projects/neutrinoGPU/containers/slf7.sif"
+larsoft_top = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft"
+scheduler_options = "#PBS -l filesystems=home:grand:eagle\n#PBS -l place=scatter"
+launcher_options = "--depth=64 --ppn 1"
+cpu_affinity = "alternating"
+available_accelerators = 32
+pbs_filesystems = "home:grand:eagle"
+worker_venv_name = "sbn"
+metadata_exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
+simulation_inputs = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"

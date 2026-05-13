@@ -1,0 +1,33 @@
+[run]
+output = "/lus/flare/projects/neutrinoGPU/twester/diffusion_detvar_wf_skip_test"
+nsubruns = 6
+files_per_subrun = 20
+
+[workflow]
+subruns_per_caf = 20
+full_keep_fraction = 0.125
+
+[larsoft]
+software = "sbndcode"
+version = "v10_06_00_05"
+qual = "e26:prof"
+nevts = 50
+experiment = "sbnd"
+lar_args = ""
+
+[job]
+queue = "debug"
+walltime = "1:00:00"
+nodes_per_block = 1
+strategy = "simple"
+allocation = "14454"
+retries = 1
+
+[fcls]
+cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rockbox_sbnd.fcl", detsim = "standard_detsim_sbnd.fcl", reco1 = "standard_reco1_sbnd.fcl", reco2 = "standard_reco2_sbnd.fcl", caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl", scrub = "scrub_wcls_detsim_reco1.fcl" }
+no_longitudinal_diffusion = { detsim = "standard_detsim_sbnd_no_longitudinal_diffusion_detvar.fcl" }
+no_transverse_diffusion = { detsim = "standard_detsim_sbnd_no_transverse_diffusion_detvar.fcl" }
+
+[metadata]
+exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
+mdprojectversion = "v10_06_00_05"

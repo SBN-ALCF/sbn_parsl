@@ -1,0 +1,31 @@
+[run]
+output = "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_offbeambnbmajority-B/"
+nsubruns = 20000
+files_per_subrun = 1
+
+[workflow]
+
+[larsoft]
+software = "icaruscode"
+version = "v10_06_00_01p05"
+qual = "e26:prof"
+nevts = -1
+experiment = "icarus"
+lar_args = ""
+
+[job]
+queue = "debug"
+walltime = "1:00:00"
+nodes_per_block = 1
+strategy = "simple"
+allocation = "14186"
+retries = 0
+
+[fcls]
+reco1 = "stage0_run2_wcdnn_icarus.fcl"
+reco2 = "stage1_run2_icarus.fcl"
+caf = "cafmakerjob_icarus_data.fcl"
+
+[metadata]
+exe = "/lus/flare/projects/neutrinoGPU/software/sbnpoms_metadata_injector_data.sh"
+mdprojectversion = "v10_06_00_01p05"

@@ -62,28 +62,40 @@ logger = logging.getLogger(__name__)
 
 
 class NoInputFileException(Exception):
+    """Raised when a stage requires an input file but none was provided."""
     pass
 
 
 class NoFclFileException(Exception):
+    """Raised when a stage requires a FHiCL file but none was provided or found in defaults."""
     pass
 
 
 class WorkflowException(Exception):
+    """General exception for workflow-related errors."""
     pass
 
 
 class StageAncestorException(Exception):
+    """Raised when there is an error in the stage ancestry graph (e.g., invalid parent type)."""
     pass
 
 
 class NoStageOrderException(Exception):
+    """Raised when a stage operation is attempted without a defined stage order."""
     pass
 
 
 class StageProperty(Flag):
     """
     Bitwise flags representing special behavioral properties of a StageType.
+
+    Attributes:
+        NONE: Default properties.
+        NO_FCL: Stage does not require a FHiCL file (e.g., SPINE).
+        NO_PARENT: Stage is an entry point and has no predecessors.
+        NO_INPUT: Stage does not require input files (e.g., GEN).
+        _SUPER: Special property for the workflow-terminating super stage.
     """
 
     NONE = 0
@@ -103,16 +115,25 @@ class StageType:
     _registry: Dict[str, "StageType"] = {}
 
     def __init__(self, name: str, props: Optional[StageProperty] = StageProperty.NONE):
+        """
+        Initializes a StageType and registers it.
+
+        Args:
+            name: The unique string identifier for the stage type.
+            props: Behavioral flags for this stage type.
+        """
         self._name = name
         self._props = props
         StageType._registry[name.lower()] = self
 
     @property
     def properties(self):
+        """Returns the StageProperty flags for this type."""
         return self._props
 
     @property
     def name(self):
+        """Returns the string name of this stage type."""
         return self._name
 
     def __eq__(self, other):
@@ -126,7 +147,18 @@ class StageType:
 
     @classmethod
     def from_str(cls, name: str) -> "StageType":
-        """Return the StageType instance with the given name, or raise ValueError."""
+        """
+        Return the StageType instance with the given name.
+
+        Args:
+            name: The string name to look up.
+
+        Returns:
+            The matching StageType instance.
+
+        Raises:
+            ValueError: If the name is not found in the registry.
+        """
         name_lower = name.lower()
         if name_lower in cls._registry:
             return cls._registry[name_lower]
@@ -161,7 +193,19 @@ _SUPER = StageType("super", StageProperty._SUPER | StageProperty.NO_FCL)
 def default_runfunc(
     stage_self, fcl, parent_result: StageResult, output_dir
 ) -> StageResult:
-    """Default function called when each stage is run."""
+    """
+    Default function called when each stage is run. 
+    Constructs a basic 'lar -c' command.
+
+    Args:
+        stage_self: The Stage object being executed.
+        fcl: Path to the FHiCL file to use.
+        parent_result: The StageResult from the parent stage(s).
+        output_dir: Directory where outputs should be written.
+
+    Returns:
+        A StageResult object containing the output root file path.
+    """
     input_file_arg_str = ""
     if parent_result.outputs:
         input_file_arg_str = " ".join(
@@ -180,7 +224,16 @@ def default_runfunc(
 class Stage:
     """
     A single task or logical step within a computational workflow.
-    Tracks ancestry, dependencies, files, and handles Parsl futures through `run()`.
+    Tracks ancestry, dependencies, files, and handles execution through `run()`.
+
+    Attributes:
+        stage_type: The categorical identity of the stage.
+        fcl: Path to the FHiCL file for this stage.
+        runfunc: Callable that executes the stage logic.
+        run_dir: Directory where the stage is executed.
+        workflow_id: ID of the parent workflow.
+        stage_id: Unique tuple identifier within the workflow.
+        final: Whether this is a final stage in the workflow.
     """
 
     def __init__(
@@ -190,6 +243,15 @@ class Stage:
         runfunc: Optional[Callable] = None,
         stage_order: Optional[List[StageType]] = None,
     ):
+        """
+        Initializes a Stage.
+
+        Args:
+            stage_type: The StageType or string name of the stage.
+            fcl: Optional path to the FHiCL file.
+            runfunc: Optional callable to execute the stage.
+            stage_order: Optional list defining the sequence of stage types.
+        """
 
         if isinstance(stage_type, str):
             stage_type = StageType.from_str(stage_type)
@@ -218,9 +280,19 @@ class Stage:
 
     @property
     def stage_type(self) -> StageType:
+        """Returns the StageType of this stage."""
         return self._stage_type
 
     def is_first(self) -> bool:
+        """
+        Determines if this stage is the first in its workflow branch.
+
+        Returns:
+            True if the stage has no parent type, False otherwise.
+
+        Raises:
+            RuntimeError: If called before the stage is finalized.
+        """
         if not self._is_finalized:
             raise RuntimeError(
                 "Cannot determine if stage is first before it has been finalized."
@@ -229,6 +301,10 @@ class Stage:
 
     @property
     def output_files(self) -> List:
+        """
+        Returns the list of output files produced by this stage.
+        Triggers `run()` if the stage has not been executed yet.
+        """
         if self._output_result is None:
             print(
                 f"Warning: Running stage of type {self.stage_type} via output_files method"
@@ -238,19 +314,33 @@ class Stage:
 
     @property
     def output_result(self) -> StageResult:
+        """
+        Returns the StageResult object produced by this stage.
+        Triggers `run()` if the stage has not been executed yet.
+        """
         if self._output_result is None:
             self.run()
         return self._output_result
 
     @property
     def input_files(self) -> Optional[List]:
+        """Returns a flattened list of output files from all parent stages."""
         if not self._parent_results:
             return None
         return [f for r in self._parent_results for f in r.outputs]
 
     @property
     def parent_type(self) -> Optional[StageType]:
-        """Return the stage type of the stage before this one."""
+        """
+        Return the stage type of the stage before this one in the stage order.
+
+        Returns:
+            The parent StageType, or None if this is the first stage.
+
+        Raises:
+            NoStageOrderException: If stage_order is not defined.
+            StageAncestorException: If the stage type is not found in stage_order.
+        """
         if self.stage_order is None:
             raise NoStageOrderException(
                 f"No stage order set for stage of type {self.stage_type.name}. Either add this stage to a Workflow or set stage_order at initialization."
@@ -269,26 +359,42 @@ class Stage:
         return self.stage_order[parent_idx]
 
     def has_parents(self) -> bool:
+        """Checks if the stage has any parent iterators still active."""
         return len(self._parents_iterators) > 0
 
     def parents(self, _type: StageType):
+        """Returns the set of unique parent Stage objects matching a given type."""
         return set(s[0] for s in self._parents_iterators if s[0].stage_type == _type)
 
     @property
     def complete(self) -> bool:
+        """Returns True if the stage has finished execution."""
         return self._complete
 
     def add_input_file(self, file) -> None:
+        """
+        Manually adds an input file or StageResult as a dependency.
+
+        Args:
+            file: A filename string or a StageResult object.
+        """
         if isinstance(file, StageResult):
             self._parent_results.append(file)
         else:
             self._parent_results.append(StageResult(outputs=[file]))
 
     def add_parent_result(self, result: StageResult) -> None:
+        """
+        Adds a StageResult from a parent stage.
+
+        Args:
+            result: The StageResult object to add.
+        """
         self._parent_results.append(result)
 
     @property
     def combine(self) -> bool:
+        """Whether to combine this stage's command with its parents' in a single script."""
         return self._combine
 
     @combine.setter
@@ -297,10 +403,22 @@ class Stage:
 
     @property
     def stage_id_str(self) -> str:
+        """Returns a string representation of the unique stage ID."""
         return f"{self.workflow_id}_" + "_".join(str(c) for c in self.stage_id)
 
     def run(self, rerun: bool = False) -> None:
-        """Produces the output file for this stage."""
+        """
+        Executes the stage logic using the assigned `runfunc`.
+
+        Args:
+            rerun: If True, forces execution even if already complete.
+
+        Raises:
+            RuntimeError: If parents are still pending or other logic errors.
+            NoFclFileException: If a FHiCL file is required but missing.
+            NoInputFileException: If inputs are required but missing.
+            TypeError: If runfunc does not return a StageResult.
+        """
         if self._output_result is not None and not rerun:
             return
 
@@ -359,15 +477,23 @@ class Stage:
         self._output_result = result
 
     def add_parents(self, stages: Any) -> None:
-        """workflow calls finalize routine to actually add the parents, user
-        code caches them prior to that call."""
+        """
+        Queues parent stages for addition during finalization.
+
+        Args:
+            stages: A single Stage or list of Stage objects to add as parents.
+        """
         if not isinstance(stages, list):
             stages = [stages]
         self._temp_parent_stages.extend(stages)
 
     def _finalize(self, fcls: Optional[Dict] = None):
-        """Called by workflow for SUPER stage to allows workflow to control
-        when the stages are actually added (e.g., after setting up IDs)"""
+        """
+        Internal method to build the ancestry tree and resolve FHiCL files.
+
+        Args:
+            fcls: Dictionary mapping StageTypes to default FHiCL files.
+        """
 
         if fcls is not None:
             self._fcls = fcls
@@ -393,7 +519,12 @@ class Stage:
         self._is_finalized = True
 
     def _add_parents(self, stages: Any) -> None:
-        """Add a list of known prior stages to this one."""
+        """
+        Internal method to link parent stages and initialize their metadata.
+
+        Args:
+            stages: A single Stage or list of Stage objects.
+        """
         if not isinstance(stages, list):
             stages = [stages]
 
@@ -425,9 +556,11 @@ class Stage:
 
     def get_next_task(self, mode="cycle"):
         """
-        Run the workflow by individually running the added stages. Can either
-        cycle through end stages (grab one task from each stage at a time) or
-        not (grab all tasks from first stage before continuing)
+        Yields execution control to parent stages until they complete.
+
+        Args:
+            mode: "cycle" to alternate between parent branches, or "depth" 
+                  to finish one branch before starting another.
         """
         while self._parents_iterators:
             # remove
@@ -448,9 +581,19 @@ class Stage:
 
 
 def run_stage(stage: Stage):
-    """Run an individual stage, recursing to parent stages as necessary.
-    Note that this is a generator: Call next(Workflow.run_stage(stage)) to
-    get the next task."""
+    """
+    Generator function that executes a stage and its ancestry recursively.
+
+    This function yields Control to the caller each time a new task is 
+    ready for submission. It ensures that parent stages are fully 
+    traversed before the child stage executes.
+
+    Args:
+        stage: The Stage object to run.
+
+    Raises:
+        NoFclFileException: If a FHiCL file is required but missing.
+    """
 
     if stage.complete:
         return
@@ -505,7 +648,18 @@ class Workflow:
     def default_runfunc(
         stage_self, fcl, parent_result: StageResult, output_dir
     ) -> StageResult:
-        """Default function called when each stage is run."""
+        """
+        Default function called when each stage is run.
+
+        Args:
+            stage_self: The Stage object.
+            fcl: Path to the FHiCL file.
+            parent_result: Result from parent stage.
+            output_dir: Output directory.
+
+        Returns:
+            A StageResult containing the predicted output file.
+        """
         input_file_arg_str = ""
         if parent_result.outputs:
             input_file_arg_str = " ".join(
@@ -525,6 +679,15 @@ class Workflow:
         run_dir: pathlib.Path = pathlib.Path(),
         runfunc: Optional[Callable] = None,
     ):
+        """
+        Initializes a Workflow.
+
+        Args:
+            stage_order: List of StageTypes defining the valid ancestry path.
+            default_fcls: Mapping of StageType to default FHiCL files.
+            run_dir: Directory where tasks will execute.
+            runfunc: Default execution function for all stages in the workflow.
+        """
 
         # ID is set by the workflow executor
         self._id = None
@@ -552,11 +715,16 @@ class Workflow:
         self._final_stages = []
 
     def add_final_stage(self, stage: Stage):
-        """Add the final stage to the workflow."""
+        """
+        Adds a leaf node to the workflow graph.
+
+        Args:
+            stage: The final Stage object to be executed.
+        """
         self._final_stages.append(stage)
 
     def _finalize(self):
-        """Let the workflow executor control when to call add_parents."""
+        """Internal method to link the super stage to final stages and set IDs."""
         # keep track of where this stage came from
         # super stage always gets Stage ID as the empty string
         self._stage.workflow_id = self._id
@@ -583,34 +751,12 @@ class Workflow:
 
     @property
     def n_final_stages(self):
+        """Returns the number of final stages in the workflow."""
         return self._n_final_stages
-
-    '''
-    def _resolve(self, stage=None, iteration):
-        """
-        Mark stages complete based on iteration number.
-        While it is optimal for first-time runs to begin by running the stages
-        with no dependencies, it becomes sub-optimal to re-run those stages if
-        re-running the workflow from a  mostly complete state. This function
-        marks stages with dependencies as complete if the "check_complete"
-        function finds the correct output, e.g., a file with the expected name,
-        therefore skipping submission of the earlier stages. If the user knows
-        the workflow is a first-time run, this method should not be called.
-        Otherwise it could save some time.
-        """
-        if stage is None:
-            stage = self._stage
-
-        for p in stage.parents():
-            if not p.check_complete(iteration):
-                self._resolve(p, iteration)
-    '''
 
     def get_next_task(self):
         """
-        Run the workflow by individually running the added stages. Can either
-        cycle through end stages (grab one task from each stage at a time) or
-        not (grab all tasks from first stage before continuing)
+        Generator that yields when a new task is ready for submission.
         """
         try:
             next(run_stage(self._stage))
@@ -619,13 +765,22 @@ class Workflow:
             pass
 
     def _get_last_file(self):
+        """Returns the outputs of the last executed stage."""
         return self._stage._workflow_last_file
 
 
 
 
 class WorkflowExecutor:
-    """Class to wrap settings and run multiple workflow objects."""
+    """
+    Class to wrap settings and run multiple workflow objects.
+    Manages the task submission loop, SQLite caching, and resource limiting.
+
+    Attributes:
+        cfg: The Config object containing all project settings.
+        futures: A set of active Parsl futures.
+        max_futures: The maximum number of concurrent futures allowed.
+    """
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -933,29 +1088,23 @@ class LArSoftExecutor(WorkflowExecutor):
             pending_stage_updates.clear()
             pending_workflow_ids.clear()
 
-        while not self._db_worker_stop.is_set():
+        while True:
             timeout = self._db_batch_max_wait
             try:
                 evt = self._db_event_queue.get(timeout=timeout)
             except queue.Empty:
                 evt = None
 
-            if evt is None:
-                # Either timeout or sentinel
-                if self._db_worker_stop.is_set():
-                    # On stop, flush and break
-                    _flush_db_batches()
-                    self._maybe_backup_db(
-                        force=True, last_backup_time_ref=last_backup_time
-                    )
-                    break
-            else:
+            if evt is not None:
                 if evt["type"] == "stage":
                     pending_stage_updates.append((evt["stage_id"], evt["status"]))
                 elif evt["type"] == "workflow":
                     pending_workflow_ids.append(evt["workflow_id"])
                 else:
                     raise RuntimeError(f"Got unsupported database event {evt['type']}")
+            elif self._db_worker_stop.is_set():
+                # Queue is empty and stop flag is set
+                break
 
             now = time.time()
             should_flush = (pending_stage_updates or pending_workflow_ids) and (
@@ -972,6 +1121,11 @@ class LArSoftExecutor(WorkflowExecutor):
                     force=False, last_backup_time_ref=last_backup_time
                 )
                 print("Done writing to database")
+
+        # Final flush of any remaining batched updates
+        _flush_db_batches()
+        # Final sync to disk
+        self.backup_db()
 
         self._mem_db.close()
         self._disk_db.close()

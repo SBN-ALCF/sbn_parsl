@@ -1,0 +1,37 @@
+[run]
+output = "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_mc_prod"
+nsubruns = 80000
+files_per_subrun = 1
+
+[workflow]
+
+[larsoft]
+software = "icaruscode"
+version = "v10_06_00_06p03"
+qual = "e26:prof"
+nevts = -1
+experiment = "icarus"
+lar_args = ""
+
+[job]
+queue = "prod"
+walltime = "12:00:00"
+nodes_per_block = 600
+max_workers_per_node = 70
+strategy = "simple"
+allocation = "neutrinoGPU::ICARUSRun4_Summer2025_MC"
+retries = 0
+
+[fcls]
+overlay = "simulation_genie_icarus_bnb_overlays_volDetEnclosure_fiducial.fcl"
+g4 = "larg4_icarus_cosmics_sce.fcl"
+detsim = "detsim_2d_icarus_refactored_yzsim_overlay_Run4.fcl"
+decode = "decoder_run2_icarus.fcl"
+overlay_wfm = "overlay_waveforms.fcl"
+stage0 = "stage0_run2_wcdnn_icarus_overlay.fcl"
+stage1 = "stage1_run2_larcv_icarus_overlay.fcl"
+caf = "cafmakerjob_icarus_detsim2d_systtools_and_fluxwgt_overlay.fcl"
+
+[metadata]
+exe = "/lus/flare/projects/neutrinoGPU/software/sbnpoms_metadata_injector_data.sh"
+mdprojectversion = "v10_06_00_06p03"

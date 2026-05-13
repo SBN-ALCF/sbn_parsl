@@ -52,8 +52,10 @@ def fcl_future(
 @dataclass
 class RunContext:
     """
-    Context object passed to different components during runfunc.
-    LAr args are executor larsoft options after any stage overrides
+    State container passed between components during the execution of a stage.
+
+    Encapsulates all information required to generate the final execution command,
+    including paths, configurations, and stage-specific metadata.
     """
 
     stage: Stage
@@ -69,6 +71,12 @@ class RunContext:
 
 
 def _get_output_dir(context: RunContext, use_label: bool = True) -> pathlib.Path:
+    """
+    Generates a structured output directory path.
+
+    The path follows the pattern: [label/]<stage_name>/<workflow_batch>/<workflow_id>
+    Batches are grouped by 1000s and 100s to avoid directory scaling issues.
+    """
     parts = []
     if use_label and context.label:
         parts.append(context.label)
@@ -85,6 +93,12 @@ def output_filepath_generic(
     blind_caf: bool = False,
     is_mc: bool = False,
 ) -> pathlib.Path:
+    """
+    Determines the full output file path based on experiment-specific conventions.
+
+    Handles special cases for CAF files (blinding), MC first stages (hashing 
+    for uniqueness), and standard derivative stages (chaining filenames).
+    """
     if context.stage.stage_type == DefaultStageTypes.CAF:
         caf_suffix = ".Blind.OKTOLOOK.flat.caf.root" if blind_caf else ".flat.caf.root"
         output_filename = os.path.splitext(context.input_files[0].name)[0] + caf_suffix
@@ -117,7 +131,12 @@ def build_larsoft_cmd(
     decode_stream: str = "",
     calib_ntuple_stage: Optional[StageType] = None,
 ) -> str:
-    """Build larsoft command with input & output flags"""
+    """
+    Constructs the standard 'lar' command line execution string.
+
+    Handles input/output flags, event counts (nevts), skip offsets (nskip),
+    and optional calibration ntuple redirection (-T).
+    """
     output_file_arg_str = ""
     if context.stage.stage_type != DefaultStageTypes.CAF:
         stream_prefix = (
@@ -163,7 +182,12 @@ def build_larsoft_cmd(
 
 
 def build_modify_fcl_cmd(context: RunContext) -> str:
-    """generate bash commands that modify fcl"""
+    """
+    Generates bash commands to append experiment-specific overrides to a FHiCL file.
+
+    For GEN stages, this includes run/subrun/event numbering and flux path 
+    configurations required for reproducibility.
+    """
     fcl_cmd = ""
     fcl_name = context.fcl.name
     if context.stage.stage_type == DefaultStageTypes.GEN:
@@ -217,7 +241,34 @@ def larsoft_runfunc(
     **kwargs,
 ) -> StageResult:
     """
-    Method bound to each Stage object and run during workflow execution.
+    Core orchestrator that converts a Stage into a Parsl task.
+
+    This function is responsible for:
+    1. Resolving input and output file paths.
+    2. Checking the SQLite cache for existing results to enable fast restarts.
+    3. Building the execution environment (mkdir, cd, environment variables).
+    4. Orchestrating FHiCL modifications and metadata generation.
+    5. Submitting the task via a `bash_app` (defined by `future_func`).
+    6. Handling dependencies, including "combined" stages where multiple
+       commands are executed in a single shell script.
+
+    Args:
+        self: The Stage object being executed.
+        fcl: Path to the FHiCL file for this stage.
+        parent_result: Output and dependency information from predecessors.
+        run_dir: Directory where the task's logs and temporary files live.
+        template: The bash script template for the Parsl app.
+        executor: The active LArSoftExecutor managing the workflow.
+        meta: Optional MetadataGenerator for FNAL/SAM metadata.
+        label: Optional string label for directory organization.
+        last_file: Optional output from a previous workflow to chain dependencies.
+        output_filename_func: Logic for naming the resulting root file.
+        lar_cmd_func: Logic for building the 'lar' CLI command.
+        fcl_cmd_func: Logic for modifying the FHiCL file.
+        future_func: The Parsl bash_app to use for submission.
+
+    Returns:
+        A StageResult containing the new DataFutures or local file paths.
     """
 
     # Create a copy of larsoft config to apply overrides if any

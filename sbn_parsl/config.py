@@ -33,6 +33,7 @@ class SiteConfig:
     worker_init: str = ""
     worker_venv_name: str = "sbn"
     simulation_inputs: str = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
+    metadata_exe: Optional[str] = None
 
     @classmethod
     def from_toml(cls, path: pathlib.Path) -> "SiteConfig":
@@ -244,6 +245,8 @@ class Config:
         run_cfg = RunConfig(**run_data)
 
         metadata_cfg = MetadataConfig(**wf_data.get("metadata", {}))
+        if metadata_cfg.exe is None:
+            metadata_cfg.exe = site_cfg.metadata_exe
 
         # 4. Job Config merging (Workflow TOML defaults -> CLI Overrides)
         job_data = wf_data.get("job", {})

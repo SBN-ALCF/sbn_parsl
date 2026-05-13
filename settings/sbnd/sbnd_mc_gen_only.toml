@@ -1,0 +1,30 @@
+[run]
+output = "your_output_dir"
+nsubruns = 102400
+
+[workflow]
+subruns_per_caf = 1
+full_keep_fraction = 0.05
+
+[larsoft]
+software = "sbndcode"
+version = "v10_14_02_04"
+qual = "e26:prof"
+nevts = 100
+experiment = "sbnd"
+lar_args = ""
+
+[job]
+queue = "gpu_hack_large"
+walltime = "02:30:00"
+nodes_per_block = 1024
+strategy = "none"
+allocation = "gpu_hack"
+retries = 0
+
+[fcls]
+gen = "prodgenie_corsika_proton_rockbox0p1_sbnd.fcl"
+
+[metadata]
+exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
+mdprojectversion = "v10_14_02_04"
