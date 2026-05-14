@@ -1,5 +1,4 @@
 [run]
-output = "/lus/eagle/projects/neutrinoGPU/twester/v10_test_icarus"
 nsubruns = 50
 
 [workflow]

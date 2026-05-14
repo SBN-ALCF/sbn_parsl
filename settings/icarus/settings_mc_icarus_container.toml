@@ -1,5 +1,4 @@
 [run]
-output = "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_mc_prod"
 nsubruns = 80000
 files_per_subrun = 1
 
@@ -18,7 +17,6 @@ queue = "prod"
 walltime = "12:00:00"
 nodes_per_block = 600
 max_workers_per_node = 70
-strategy = "simple"
 allocation = "neutrinoGPU::ICARUSRun4_Summer2025_MC"
 retries = 0
 
@@ -33,5 +31,4 @@ stage1 = "stage1_run2_larcv_icarus_overlay.fcl"
 caf = "cafmakerjob_icarus_detsim2d_systtools_and_fluxwgt_overlay.fcl"
 
 [metadata]
-exe = "/lus/flare/projects/neutrinoGPU/software/sbnpoms_metadata_injector_data.sh"
 mdprojectversion = "v10_06_00_06p03"

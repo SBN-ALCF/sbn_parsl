@@ -1,5 +1,4 @@
 [run]
-output = "/lus/eagle/projects/neutrinoGPU/sbnd/mc/v09_93_01/cv_cpu/spine"
 nsubruns = 1
 
 [workflow]

@@ -1,5 +1,4 @@
 [run]
-output = "/lus/flare/projects/neutrinoGPU/twester/diffusion_detvar_wf_skip_test"
 nsubruns = 6
 files_per_subrun = 20
 
@@ -19,7 +18,6 @@ lar_args = ""
 queue = "debug"
 walltime = "1:00:00"
 nodes_per_block = 1
-strategy = "simple"
 allocation = "14454"
 retries = 1
 
@@ -29,5 +27,4 @@ no_longitudinal_diffusion = { detsim = "standard_detsim_sbnd_no_longitudinal_dif
 no_transverse_diffusion = { detsim = "standard_detsim_sbnd_no_transverse_diffusion_detvar.fcl" }
 
 [metadata]
-exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 mdprojectversion = "v10_06_00_05"

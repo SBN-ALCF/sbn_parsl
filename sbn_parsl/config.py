@@ -15,32 +15,24 @@ class SiteConfig:
     and paths to the container and larsoft installations.
     """
 
+    # Machine / Site Parameters
     name: str
     cpus_per_node: int
     cores_per_worker: int
-    container_path: str
-    larsoft_top: str
     max_futures: int = 60000
-
-    # Static patterns
     scheduler_options: str = ""
     launcher_options: str = ""
     cpu_affinity: str = "none"
     available_accelerators: Any = None
     pbs_filesystems: str = "home"
-
-    # Environment
     worker_init: str = ""
     worker_venv_name: str = "sbn"
+
+    # LArSoft / Software Parameters
+    container_path: str = ""
+    larsoft_top: str = ""
     simulation_inputs: str = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
     metadata_exe: Optional[str] = None
-
-    @classmethod
-    def from_toml(cls, path: pathlib.Path) -> "SiteConfig":
-        """Loads a SiteConfig from a TOML file."""
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-        return cls(**data)
 
 
 @dataclass
@@ -95,6 +87,22 @@ class WorkflowConfig:
     full_keep_fraction: float = 1.0
     fcls: Dict[str, str] = field(default_factory=dict)
 
+    # Extra fields for workflow-specific parameters
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    def __getattr__(self, name):
+        if name in self.extra:
+            return self.extra[name]
+        raise AttributeError(f"'WorkflowConfig' object has no attribute '{name}'")
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowConfig":
+        """Load from dict, separating known fields from extras."""
+        known_fields = {name for name in cls.__dataclass_fields__ if name != "extra"}
+        kwargs = {k: v for k, v in data.items() if k in known_fields}
+        extra = {k: v for k, v in data.items() if k not in known_fields}
+        return cls(**kwargs, extra=extra)
+
 
 @dataclass
 class MetadataConfig:
@@ -113,10 +121,10 @@ class RunConfig:
     Contains output directory locations and success requirements.
     """
 
+    output: str  # Set dynamically from CLI
     nsubruns: int = 1
     runinfo: Optional[str] = None
     daos: bool = False
-    output: str = ""  # Set dynamically from CLI
     require_success: bool = True
     file_list: Optional[str] = None
     files_per_subrun: Optional[int] = None
@@ -228,16 +236,32 @@ class Config:
 
         with open(site_path, "rb") as f:
             site_data = tomllib.load(f)
-        site_cfg = SiteConfig(**site_data)
+
+        # Merge [site] and [larsoft] sections from site config
+        # We also support a flat structure for backward compatibility during transition
+        merged_site_data = {}
+        if "site" in site_data or "larsoft" in site_data:
+            merged_site_data.update(site_data.get("site", {}))
+            merged_site_data.update(site_data.get("larsoft", {}))
+        else:
+            merged_site_data = site_data
+
+        site_cfg = SiteConfig(**merged_site_data)
 
         # 3. Load workflow TOML
         with open(workflow_path, "rb") as f:
             wf_data = tomllib.load(f)
 
         larsoft_cfg = LArSoftConfig(**wf_data.get("larsoft", {}))
-        workflow_cfg = WorkflowConfig(**wf_data.get("workflow", {}))
+
+        # Load workflow config, merging top-level fcls if present
+        wf_raw_data = wf_data.get("workflow", {})
         if "fcls" in wf_data:
-            workflow_cfg.fcls.update(wf_data["fcls"])
+            if "fcls" not in wf_raw_data:
+                wf_raw_data["fcls"] = {}
+            wf_raw_data["fcls"].update(wf_data["fcls"])
+
+        workflow_cfg = WorkflowConfig.from_dict(wf_raw_data)
 
         run_data = wf_data.get("run", {})
         if run_overrides:

@@ -1,5 +1,4 @@
 [run]
-output = "/lus/eagle/projects/neutrinoGPU/twester/sbnd_test_data"
 nsubruns = 32
 files_per_subrun = 1
 
@@ -28,5 +27,4 @@ reco2 = "reco2_data.fcl"
 caf = "cafmakerjob_sbnd_data_sce_bnblight_dnnroi.fcl"
 
 [metadata]
-exe = "/lus/grand/projects/neutrinoGPU/software/larsoft/sbndutil/v09_88_00_02/bin/sbndpoms_metadata_injector.sh"
 mdprojectversion = "v10_10_03_02"

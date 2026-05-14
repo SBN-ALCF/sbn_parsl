@@ -1,5 +1,4 @@
 [run]
-output = "your_output_dir"
 nsubruns = 1
 files_per_subrun = 1
 
@@ -17,7 +16,6 @@ lar_args = ""
 queue = "debug"
 walltime = "1:00:00"
 nodes_per_block = 1
-strategy = "simple"
 allocation = "neutrinoGPU::debug2"
 retries = 0
 
@@ -29,5 +27,4 @@ reco2 = "reco2_data.fcl"
 caf = "cafmakerjob_sbnd_data_sce_bnblight_dnnroi.fcl"
 
 [metadata]
-exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 mdprojectversion = "v10_06_00_04"

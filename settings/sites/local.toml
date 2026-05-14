@@ -1,12 +1,16 @@
+[site]
 name = "local"
-cpus_per_node = 32
+cpus_per_node = 12
 cores_per_worker = 1
-container_path = ""
-larsoft_top = ""
 scheduler_options = ""
 launcher_options = ""
 cpu_affinity = "none"
 available_accelerators = 0
 pbs_filesystems = ""
 worker_venv_name = "sbn"
+
+[larsoft]
+container_path = "/home/twester/containers/slf7.sif"
+larsoft_top = "/home/twester/scisoft/larsoft"
+metadata_exe = "/home/twester/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 simulation_inputs = ""

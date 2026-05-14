@@ -2,12 +2,7 @@
 # Class for generating metadata directives for fcl files
 
 import os
-import shutil
-import pathlib
-import subprocess
-from typing import Dict, Optional
-
-from sbn_parsl.config import Config
+from typing import Dict, Optional, Any
 
 
 POMS_EXE = "sbndpoms_metadata_injector.sh"
@@ -16,24 +11,49 @@ POMS_EXE = "sbndpoms_metadata_injector.sh"
 class MetadataGenerator:
     """
     Handles the generation of JSON metadata for LArSoft output files.
-    This metadata is used for ingestion into the SAM (Sequential Access via Metadata) 
+    This metadata is used for ingestion into the SAM (Sequential Access via Metadata)
     system at FNAL.
     """
 
-    def __init__(self, cfg: Config, fclnames: Optional[Dict] = None):
-        """Initializes the generator with project-specific settings."""
-        self.cfg = cfg
-        self.md = cfg.metadata
+    def __init__(
+        self, md_config: Any, fclnames: Optional[Dict] = None, defer_check: bool = False
+    ):
+        """
+        Initializes the generator.
+
+        Args:
+            md_config: Either a Config object or a dictionary of metadata settings.
+            fclnames: Mapping of StageType names to FHiCL files.
+            defer_check: Included for backwards compatibility with workflow scripts.
+        """
+        self.md_config = md_config
         self.fclnames = fclnames or {}
+
+        # Determine if we have a full Config or just the metadata part
+        if hasattr(md_config, "metadata"):
+            self.md = md_config.metadata
+            self.experiment = md_config.larsoft.experiment
+        elif isinstance(md_config, dict):
+            # Fallback for when just the metadata dict is passed
+            from dataclasses import dataclass
+
+            @dataclass
+            class MockMD:
+                exe: Optional[str] = None
+                mdprojectversion: Optional[str] = None
+
+            self.md = MockMD(
+                exe=md_config.get("exe"),
+                mdprojectversion=md_config.get("mdprojectversion"),
+            )
+            self.experiment = md_config.get("experiment", "unknown")
+        else:
+            self.md = md_config
+            self.experiment = "unknown"
 
     def run_cmd(self, out_json, fcl, check_exists=True):
         """
         Generates a bash command to run the metadata injector script.
-
-        Args:
-            out_json: Filename for the resulting metadata JSON.
-            fcl: The FHiCL file used to produce the root file.
-            check_exists: If True, only generates the command if the injector exists.
         """
         if self.md.exe is None:
             return ""
@@ -46,7 +66,7 @@ class MetadataGenerator:
             self.md.exe,
             f"--json {out_json}",
             f"--fcl {fcl}",
-            f"--project {self.cfg.larsoft.experiment}",
+            f"--project {self.experiment}",
             f"--version {self.md.mdprojectversion}",
         ]
 

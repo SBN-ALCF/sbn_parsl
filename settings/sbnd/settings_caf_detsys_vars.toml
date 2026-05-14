@@ -1,5 +1,4 @@
 [run]
-output = "/lus/flare/projects/neutrinoGPU/twester/pds_detvar_test_comp"
 nsubruns = 120000
 files_per_subrun = 10
 
@@ -18,7 +17,6 @@ lar_args = ""
 queue = "prod"
 walltime = "6:00:00"
 nodes_per_block = 384
-strategy = "simple"
 allocation = "neutrinoGPU::SBNDDetVarReprocess_Fall2025"
 retries = 0
 
@@ -31,5 +29,4 @@ PMTLowEff = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sb
 2xSCE = { scrub = "scrub_wcls_detsim_reco1.fcl", detsim = "detsim_enable_doublespacecharge_sbnd.fcl" }
 
 [metadata]
-exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 mdprojectversion = "v10_06_00_09"

@@ -3,7 +3,6 @@
 # This workflow runs the decoder on raw data files
 
 import sys
-import json
 import pathlib
 import functools
 import itertools
@@ -18,8 +17,9 @@ from sbn_parsl.workflow import (
 )
 from sbn_parsl.metadata import MetadataGenerator
 from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
-from sbn_parsl.components import data_runfunc_sbnd
+from sbn_parsl.experiments.sbnd import data_runfunc_sbnd
 from sbn_parsl.app import entry_point
+from sbn_parsl.config import Config
 
 
 POT = StageType("pot")
@@ -28,10 +28,10 @@ POT = StageType("pot")
 class DecoderExecutor(LArSoftExecutor):
     """Execute a decoder workflow from user settings."""
 
-    def __init__(self, settings: json):
-        super().__init__(settings)
+    def __init__(self, cfg: Config):
+        super().__init__(cfg)
 
-        self.meta = MetadataGenerator(settings["metadata"], self.fcls, defer_check=True)
+        self.meta = MetadataGenerator(cfg, self.fcls, defer_check=True)
         self.stage_order = [
             DefaultStageTypes.DECODE,
             POT,
@@ -41,15 +41,24 @@ class DecoderExecutor(LArSoftExecutor):
         ]
         # without this, workflow tries to make DefaultStageOrders out of
         # strings, but this fails since we added some custom ones
-        self.fcls = {so: settings["fcls"][so.name] for so in self.stage_order}
+        self.fcls = {so: cfg.workflow.fcls[so.name] for so in self.stage_order}
 
-        self.files_per_subrun = settings["run"]["files_per_subrun"]
+        self.files_per_subrun = cfg.run.files_per_subrun
         self.run_list = None
-        if "run_list" in settings["workflow"]:
-            with open(settings["workflow"]["run_list"], "r") as f:
+        # workflow settings are in cfg.workflow or custom fields in TOML
+        # Assuming they are mapped to the Config dataclasses.
+        # Based on config.py, we might need to handle extra fields or ensure they are there.
+        # For now, following established pattern.
+
+        # Note: rawdata_path and others might need to be added to Config if not there.
+        # Looking at config.py, WorkflowConfig only has subruns_per_caf, full_keep_fraction, fcls.
+        # We might need to access them via cfg.workflow.__dict__ if they were extra in TOML.
+        wf_dict = cfg.workflow.__dict__
+        if "run_list" in wf_dict:
+            with open(wf_dict["run_list"], "r") as f:
                 self.run_list = [int(line.strip()) for line in f.readlines()]
 
-        self.rawdata_path = pathlib.Path(settings["workflow"]["rawdata_path"])
+        self.rawdata_path = pathlib.Path(wf_dict.get("rawdata_path", "."))
 
     def file_generator(self):
         path_generators = [self.rawdata_path.rglob("*strmBNBZeroBias*.root")]
@@ -79,15 +88,13 @@ class DecoderExecutor(LArSoftExecutor):
             last_file=last_file,
         )
         s = Stage(DefaultStageTypes.CAF)
-        s.run_dir = get_subrun_dir(self.output_dir, iteration)
+        s.run_dir = self.get_run_dir(iteration)
         s.runfunc = runfunc_
         workflow.add_final_stage(s)
 
         for i, file in enumerate(rawdata_files):
             sreco2 = Stage(DefaultStageTypes.RECO2)
-            sreco2.run_dir = get_subrun_dir(
-                self.output_dir, iteration * self.files_per_subrun + i
-            )
+            sreco2.run_dir = self.get_run_dir(iteration * self.files_per_subrun + i)
             s.add_parents(sreco2)
 
             sreco1 = Stage(DefaultStageTypes.RECO1)
@@ -107,11 +114,6 @@ class DecoderExecutor(LArSoftExecutor):
             sdecode.combine = True
 
         return workflow
-
-
-def get_subrun_dir(prefix: pathlib.Path, subrun: int):
-    """Returns a path with directory structure like XXXX00/XXXXXX"""
-    return prefix / f"{100 * (subrun // 100):06d}" / f"subrun_{subrun:06d}"
 
 
 if __name__ == "__main__":

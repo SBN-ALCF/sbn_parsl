@@ -53,6 +53,7 @@ class StageResult:
     This object is passed down to child stages so they know where to find their inputs
     and what commands need to be prefixed (e.g., when combining stages).
     """
+
     outputs: List[Any] = field(default_factory=list)
     dependencies: List[Any] = field(default_factory=list)
     command: str = ""
@@ -63,26 +64,31 @@ logger = logging.getLogger(__name__)
 
 class NoInputFileException(Exception):
     """Raised when a stage requires an input file but none was provided."""
+
     pass
 
 
 class NoFclFileException(Exception):
     """Raised when a stage requires a FHiCL file but none was provided or found in defaults."""
+
     pass
 
 
 class WorkflowException(Exception):
     """General exception for workflow-related errors."""
+
     pass
 
 
 class StageAncestorException(Exception):
     """Raised when there is an error in the stage ancestry graph (e.g., invalid parent type)."""
+
     pass
 
 
 class NoStageOrderException(Exception):
     """Raised when a stage operation is attempted without a defined stage order."""
+
     pass
 
 
@@ -194,7 +200,7 @@ def default_runfunc(
     stage_self, fcl, parent_result: StageResult, output_dir
 ) -> StageResult:
     """
-    Default function called when each stage is run. 
+    Default function called when each stage is run.
     Constructs a basic 'lar -c' command.
 
     Args:
@@ -529,10 +535,18 @@ class Stage:
             stages = [stages]
 
         for s in stages:
-            if s.stage_type != self.parent_type:
+            # The _SUPER stage can have any stage type from the stage_order as a parent,
+            # allowing the workflow to terminate at any point.
+            is_super = StageProperty._SUPER in self._stage_type.properties
+            if not is_super and s.stage_type != self.parent_type:
                 raise StageAncestorException(
                     f"Tried to add stage of type {s.stage_type.name} as a parent to a stage with type {self.stage_type.name}"
                 )
+            elif is_super and s.stage_type not in self.stage_order:
+                raise StageAncestorException(
+                    f"Tried to add stage of type {s.stage_type.name} as a parent to the workflow's super stage, but {s.stage_type.name} is not in the workflow's stage order."
+                )
+
             if s.workflow_id is None:
                 s.workflow_id = self.workflow_id
             if s.stage_id is None:
@@ -559,7 +573,7 @@ class Stage:
         Yields execution control to parent stages until they complete.
 
         Args:
-            mode: "cycle" to alternate between parent branches, or "depth" 
+            mode: "cycle" to alternate between parent branches, or "depth"
                   to finish one branch before starting another.
         """
         while self._parents_iterators:
@@ -584,8 +598,8 @@ def run_stage(stage: Stage):
     """
     Generator function that executes a stage and its ancestry recursively.
 
-    This function yields Control to the caller each time a new task is 
-    ready for submission. It ensures that parent stages are fully 
+    This function yields Control to the caller each time a new task is
+    ready for submission. It ensures that parent stages are fully
     traversed before the child stage executes.
 
     Args:
@@ -769,8 +783,6 @@ class Workflow:
         return self._stage._workflow_last_file
 
 
-
-
 class WorkflowExecutor:
     """
     Class to wrap settings and run multiple workflow objects.
@@ -881,13 +893,27 @@ class LArSoftExecutor(WorkflowExecutor):
         self.name_salt = str(self.output_dir)
         self.fcl_dir = None
         self.fcls = cfg.workflow.fcls
+        self.dry_run = False
+
+    def get_run_dir(self, iteration: int) -> pathlib.Path:
+        """Default directory structure for standard subruns."""
+        from sbn_parsl.utils import get_subrun_dir
+
+        return get_subrun_dir(self.output_dir, iteration)
+
+    def get_caf_dir(self, iteration: int) -> pathlib.Path:
+        """Default directory structure for CAF outputs."""
+        from sbn_parsl.utils import get_caf_dir
+
+        return get_caf_dir(self.output_dir, iteration)
 
     def file_generator(self):
-        with open(self.run_opts.file_list, "r") as f:
-            for line in f.readlines():
-                yield pathlib.Path(f)
+        if self.run_opts.file_list:
+            with open(self.run_opts.file_list, "r") as f:
+                for line in f.readlines():
+                    yield pathlib.Path(line.strip())
 
-    def execute(self, nworkers: int = -1):
+    def execute(self, nworkers: int = -1, dry_run: bool = False):
         """
         Run many copies of a single workflow. yield each time a stage is
         executed for efficient task submission, i.e., we'll get the first tasks
@@ -897,8 +923,12 @@ class LArSoftExecutor(WorkflowExecutor):
         If nworkers > 0, tasks will be gotten from <nworkers> workflows first
         before cycling over other workflows
         """
-
+        self.dry_run = dry_run
         nsubruns = self.run_opts.nsubruns
+        if self.dry_run:
+            print(f"DRY RUN: Processing first {min(nsubruns, 3)} subruns...")
+            nsubruns = min(nsubruns, 3)
+
         file_generator = None
         by_file = False
         if self.run_opts.files_per_subrun is not None:
@@ -948,7 +978,7 @@ class LArSoftExecutor(WorkflowExecutor):
                 # critically, do this after we slice for files so that we
                 # don't break the file generator order for the next
                 # workflow
-                if self.workflow_in_db(idx):
+                if not self.dry_run and self.workflow_in_db(idx):
                     print(f"Skip workflow at index={idx}, found in db")
                     skip_idx.add(idx)
                     continue
@@ -970,10 +1000,11 @@ class LArSoftExecutor(WorkflowExecutor):
 
             # rate-limit the number of concurrent futures to avoid using too
             # much memory on login nodes (set to negative number to disable)
-            while len(self.futures) >= self.max_futures and self._future_limit:
-                min_done = min(1, len(self.futures) - self.max_futures)
-                print(f"Waiting: Current futures={len(self.futures)}")
-                self.get_task_results(min_done=min_done, min_time=1)
+            if not self.dry_run:
+                while len(self.futures) >= self.max_futures and self._future_limit:
+                    min_done = min(1, len(self.futures) - self.max_futures)
+                    print(f"Waiting: Current futures={len(self.futures)}")
+                    self.get_task_results(min_done=min_done, min_time=1)
 
             try:
                 next(wfs[idx].get_next_task())
@@ -989,15 +1020,17 @@ class LArSoftExecutor(WorkflowExecutor):
                 # let garbage collection happen
                 wfs[idx] = None
 
-        while len(self.futures) > 0:
-            print(f"All tasks submitted, draining {len(self.futures)} tasks")
-            self.get_task_results(min_done=1, min_time=5)
+        if not self.dry_run:
+            while len(self.futures) > 0:
+                print(f"All tasks submitted, draining {len(self.futures)} tasks")
+                self.get_task_results(min_done=1, min_time=5)
 
         self._db_worker_stop.set()
         self._db_update_thread.join()
         print("Done")
-        print(f"(submitted/skipped) = ({self._stage_counter}/{self._skip_counter})")
-        print(f"(success/fail) = ({self._success_counter}/{self._fail_counter})")
+        if not self.dry_run:
+            print(f"(submitted/skipped) = ({self._stage_counter}/{self._skip_counter})")
+            print(f"(success/fail) = ({self._success_counter}/{self._fail_counter})")
 
     def get_task_results(self, min_done: int = 1, min_time=None):
         """

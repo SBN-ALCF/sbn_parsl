@@ -61,7 +61,9 @@ def test_config_load_and_save(tmp_path_extended):
         return real_path(*args, **kwargs)
 
     with patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect):
-        cfg = Config.load(wf_path, site_name="polaris")
+        cfg = Config.load(
+            wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
+        )
 
         assert cfg.larsoft.version == "v1"
         assert cfg.site.max_futures == 100

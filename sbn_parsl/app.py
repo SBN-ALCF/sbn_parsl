@@ -6,7 +6,7 @@ from datetime import datetime
 
 import parsl
 
-from sbn_parsl.utils import create_parsl_config
+from sbn_parsl.parsl_setup import create_parsl_config
 from sbn_parsl.dfk_hacks import apply_hacks
 from sbn_parsl.config import Config
 
@@ -52,6 +52,12 @@ def parse_arguments(argv):
         action="store_true",
         help="Force run even if config differs from existing run",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print commands without executing",
+        default=False,
+    )
 
     # We add an attribute for the script name so entry_point can use it
     args = parser.parse_args(argv[1:])
@@ -59,8 +65,13 @@ def parse_arguments(argv):
     return args
 
 
-def entry_point(args, wfe_class):
+def entry_point(argv, wfe_class):
     """Provide common setup and execution for sbn_parsl workflows using parsed args."""
+    if isinstance(argv, list):
+        args = parse_arguments(argv)
+    else:
+        args = argv
+
     # Load configuration with CLI overrides
     job_overrides = {
         "allocation": args.allocation,
@@ -88,7 +99,7 @@ def entry_point(args, wfe_class):
     runinfo_dir.mkdir(parents=True, exist_ok=True)
 
     config_file = runinfo_dir / "config.toml"
-    if config_file.exists() and not args.force:
+    if config_file.exists() and not args.force and not args.dry_run:
         # Check compatibility
         existing_cfg = Config.load(config_file, site_name=cfg.site.name)
         if cfg.get_science_hash() != existing_cfg.get_science_hash():
@@ -101,7 +112,8 @@ def entry_point(args, wfe_class):
             return
 
     # Save config for future resumes
-    cfg.save(config_file)
+    if not args.dry_run:
+        cfg.save(config_file)
 
     # Handle max_futures logic
     if args.local:
@@ -121,7 +133,7 @@ def entry_point(args, wfe_class):
         cfg.site.cores_per_worker = args.cores_per_worker
 
     # if we are local, submit via qsub unless we are already on a compute node
-    if args.local:
+    if args.local and not args.dry_run:
         if os.environ.get("PBS_NODEFILE") is None:
             # qsub & return
             cmd_dir = runinfo_dir / "cmd"
@@ -169,6 +181,11 @@ def entry_point(args, wfe_class):
             if cfg.job.nodes_per_block > 1:
                 cfg.job.nodes_per_block -= 1
 
+    if args.dry_run:
+        wfe = wfe_class(cfg)
+        wfe.execute(cycle, dry_run=True)
+        return
+
     parsl_config = create_parsl_config(cfg, local=args.local)
     print(parsl_config)
     parsl.clear()
@@ -180,7 +197,7 @@ def entry_point(args, wfe_class):
 
 
 # when submitting with local provider, we call qsub directly on this script
-LOCAL_TEMPLATE = """#!/bin/bash
+LOCAL_TEMPLATE = r"""#!/bin/bash
 
 #PBS -S /bin/bash
 #PBS -N {job_name}
@@ -203,17 +220,10 @@ cat << EOL > cmd_$JOBNAME.sh
 export TMPDIR=/tmp/
 module load frameworks
 source ~/.venv/sbn/bin/activate
-export PATH=/opt/cray/pals/1.4/bin:\${{PATH}}
+export PATH=/opt/cray/pals/1.4/bin:${PATH}
 
 python {workflow} {settings} --local -o {out_dir}
 EOL
-chmod u+x cmd_$JOBNAME.sh
-
-# line buffer to get logs faster
-./cmd_$JOBNAME.sh
-
-[[ "1" == "1" ]] && echo "All done"
-EOF
 chmod u+x cmd_$JOBNAME.sh
 
 # line buffer to get logs faster

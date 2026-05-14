@@ -1,5 +1,4 @@
 [run]
-output = "/lus/flare/projects/neutrinoGPU/twester/sce_detvar_prod_512"
 nsubruns = 20
 files_per_subrun = 20
 
@@ -19,7 +18,6 @@ lar_args = ""
 queue = "debug"
 walltime = "1:00:00"
 nodes_per_block = 4
-strategy = "simple"
 allocation = "neutrinoGPU::SCEDetVar_Summer2025"
 retries = 0
 
@@ -29,5 +27,4 @@ cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rock
 2xSCE = { detsim = "detsim_enable_doublespacecharge_sbnd.fcl" }
 
 [metadata]
-exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 mdprojectversion = "v10_06_00_05"

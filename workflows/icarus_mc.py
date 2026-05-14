@@ -3,7 +3,6 @@
 # This workflow runs the decoder on raw data files
 
 import sys
-import json
 import pathlib
 import functools
 import itertools
@@ -17,9 +16,10 @@ from sbn_parsl.workflow import (
     DefaultStageTypes,
 )
 from sbn_parsl.metadata import MetadataGenerator
-from sbn_parsl.components import mc_runfunc_icarus
+from sbn_parsl.experiments.icarus import mc_runfunc_icarus
 from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
 from sbn_parsl.app import entry_point
+from sbn_parsl.config import Config
 
 
 OVERLAY = StageType("overlay")
@@ -29,10 +29,10 @@ OVERLAY_WFM = StageType("overlay_wfm")
 class OverlayExecutor(LArSoftExecutor):
     """Execute a decoder workflow from user settings."""
 
-    def __init__(self, settings: json):
-        super().__init__(settings)
+    def __init__(self, cfg: Config):
+        super().__init__(cfg)
 
-        self.meta = MetadataGenerator(settings["metadata"], self.fcls, defer_check=True)
+        self.meta = MetadataGenerator(cfg, self.fcls, defer_check=True)
         self.stage_order = [
             OVERLAY,
             DefaultStageTypes.G4,
@@ -46,19 +46,21 @@ class OverlayExecutor(LArSoftExecutor):
 
         # without this, workflow tries to make DefaultStageOrders out of
         # strings, but this fails since we added some custom ones
-        self.fcls = {so: settings["fcls"][so.name] for so in self.stage_order}
+        self.fcls = {so: cfg.workflow.fcls[so.name] for so in self.stage_order}
 
-        self.files_per_subrun = settings["run"]["files_per_subrun"]
+        self.files_per_subrun = cfg.run.files_per_subrun
         self.run_list = None
-        if "run_list" in settings["workflow"]:
-            with open(settings["workflow"]["run_list"], "r") as f:
+
+        wf_dict = cfg.workflow.extra
+        if wf_dict.get("run_list"):
+            with open(wf_dict["run_list"], "r") as f:
                 self.run_list = [int(line.strip()) for line in f.readlines()]
 
-        self.rawdata_path = pathlib.Path(settings["workflow"]["rawdata_path"])
+        self.rawdata_path = pathlib.Path(wf_dict.get("rawdata_path", "."))
 
         # event splitting: e.g., 50 events/file split by 10 -> 5 events per task
-        self.max_events_per_file = int(settings["workflow"]["events_per_file"])
-        self.events_per_split = int(settings["workflow"]["events_per_split"])
+        self.max_events_per_file = int(wf_dict.get("events_per_file", 1))
+        self.events_per_split = int(wf_dict.get("events_per_split", 1))
 
         # ceiling division
         self._nsplits = -(self.max_events_per_file // -self.events_per_split)
@@ -99,7 +101,7 @@ class OverlayExecutor(LArSoftExecutor):
         )
 
         s = Stage(DefaultStageTypes.CAF)
-        s.run_dir = get_subrun_dir(self.output_dir, iteration)
+        s.run_dir = self.get_run_dir(iteration)
         s.runfunc = runfunc_
         workflow.add_final_stage(s)
 
@@ -129,16 +131,10 @@ class OverlayExecutor(LArSoftExecutor):
                 s_overlay = Stage(OVERLAY, runfunc=input_runfuncs[j])
 
                 s_stage1.run_dir = (
-                    get_subrun_dir(
-                        self.output_dir, iteration * self.files_per_subrun + i
-                    )
-                    / f"{j:03d}"
+                    self.get_run_dir(iteration * self.files_per_subrun + i) / f"{j:03d}"
                 )
                 s_stage0.run_dir = (
-                    get_subrun_dir(
-                        self.output_dir, iteration * self.files_per_subrun + i
-                    )
-                    / f"{j:03d}"
+                    self.get_run_dir(iteration * self.files_per_subrun + i) / f"{j:03d}"
                 )
 
                 s.add_parents(s_stage1)
@@ -162,11 +158,6 @@ class OverlayExecutor(LArSoftExecutor):
                 # s_decode.combine = True
 
         return workflow
-
-
-def get_subrun_dir(prefix: pathlib.Path, subrun: int):
-    """Returns a path with directory structure like XXXX00/XXXXXX"""
-    return prefix / f"{100 * (subrun // 100):06d}" / f"subrun_{subrun:06d}"
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 [run]
-output = "/lus/flare/projects/neutrinoGPU/twester/aurora_test_prod_1e5"
 nsubruns = 15000
 
 [workflow]
@@ -30,4 +29,3 @@ reco2 = "standard_reco2_sbnd.fcl"
 caf = "cafmakerjob_sbnd_systtools_and_fluxwgt.fcl"
 
 [metadata]
-exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"

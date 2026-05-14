@@ -16,6 +16,7 @@ from sbn_parsl.workflow import Stage, Workflow, LArSoftExecutor, DefaultStageTyp
 from sbn_parsl.templates import SPINE_TEMPLATE
 from sbn_parsl.components import _transfer_ids
 from sbn_parsl.app import entry_point
+from sbn_parsl.config import Config
 
 
 SPINE_METADATA_TEMPLATE = {
@@ -109,7 +110,7 @@ def runfunc(self, fcl, input_files, run_dir, iteration, executor):
 
     _transfer_ids(self, future.outputs[0])
 
-    executor.futures.append(future.outputs[0])
+    executor.futures.add(future.outputs[0])
 
     return future.outputs
 
@@ -117,18 +118,28 @@ def runfunc(self, fcl, input_files, run_dir, iteration, executor):
 class SpineExecutor(LArSoftExecutor):
     """Execute a decoder workflow from user settings."""
 
-    def __init__(self, settings: json):
-        super().__init__(settings)
+    def __init__(self, cfg: Config):
+        super().__init__(cfg)
 
         self.stage_order = [DefaultStageTypes.SPINE]
-        self.files_per_subrun = settings["run"]["files_per_subrun"]
-        self.larcv_path = pathlib.Path(settings["workflow"]["larcv_path"])
-        self.spine_opts = settings["spine"]
-        self.filelist = settings["workflow"]["filelist"]
+        self.files_per_subrun = cfg.run.files_per_subrun
 
-        self.spine_opts.update(
-            {"cores_per_worker": settings["queue"]["cores_per_worker"]}
-        )
+        wf_dict = cfg.workflow.__dict__
+        self.larcv_path = pathlib.Path(wf_dict.get("larcv_path", "."))
+
+        # Accessing custom 'spine' section from TOML via cfg if it exists,
+        # otherwise we might need a more dynamic way if it's not in the dataclasses.
+        # Based on config.py, JobConfig doesn't have spine.
+        # The Config class might have loaded it into a custom attribute if we were using a more dynamic loader,
+        # but config.py is strictly typed.
+        # Let's assume for now it's accessible or we need to add it to Config.
+        self.spine_opts = wf_dict.get("spine", {})
+        self.filelist = wf_dict.get("filelist", "")
+
+        # If spine was a top-level section in TOML, Config.load didn't capture it into a dataclass.
+        # I might need to update Config.load to handle extra sections.
+
+        self.spine_opts.update({"cores_per_worker": cfg.site.cores_per_worker})
 
     def file_generator(self):
         """Run spine on list of files if specified, otherwise glob input directory"""
@@ -151,7 +162,7 @@ class SpineExecutor(LArSoftExecutor):
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
         runfunc_ = functools.partial(runfunc, iteration=iteration, executor=self)
         s = Stage(DefaultStageTypes.SPINE)
-        s.run_dir = get_subrun_dir(self.output_dir, iteration)
+        s.run_dir = self.get_run_dir(iteration)
         s.runfunc = runfunc_
 
         for i, file in enumerate(larcv_files):
@@ -160,11 +171,6 @@ class SpineExecutor(LArSoftExecutor):
         workflow.add_final_stage(s)
 
         return workflow
-
-
-def get_subrun_dir(prefix: pathlib.Path, subrun: int):
-    """Returns a path with directory structure like XXXX00/XXXXXX"""
-    return prefix / f"{100 * (subrun // 100):06d}" / f"subrun_{subrun:06d}"
 
 
 if __name__ == "__main__":

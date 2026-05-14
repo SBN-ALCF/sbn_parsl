@@ -4,7 +4,6 @@
 # and does so for different detsim variations.
 
 import sys
-import json
 import pathlib
 import functools
 import itertools
@@ -12,18 +11,20 @@ import itertools
 from sbn_parsl.workflow import Stage, Workflow, LArSoftExecutor, DefaultStageTypes
 from sbn_parsl.metadata import MetadataGenerator
 from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
-from sbn_parsl.components import mc_runfunc_sbnd
+from sbn_parsl.experiments.sbnd import mc_runfunc_sbnd
 from sbn_parsl.app import entry_point
+from sbn_parsl.config import Config
 
 
 class Reco2FromGenExecutor(LArSoftExecutor):
     """Execute a Gen -> G4 -> Detsim -> Reco1 -> Reco2 workflow from user settings."""
 
-    def __init__(self, settings: json):
-        super().__init__(settings)
+    def __init__(self, cfg: Config):
+        super().__init__(cfg)
 
-        self.detsim_path = pathlib.Path(settings["workflow"]["detsim_path"])
-        self.subruns_per_caf = settings["workflow"]["subruns_per_caf"]
+        wf_dict = cfg.workflow.__dict__
+        self.detsim_path = pathlib.Path(wf_dict.get("detsim_path", "."))
+        self.subruns_per_caf = cfg.workflow.subruns_per_caf
         self.default_fcls = self.fcls["cv"]
         self.variations = [key for key in self.fcls.keys() if key != "cv"]
 
@@ -35,7 +36,7 @@ class Reco2FromGenExecutor(LArSoftExecutor):
                 self.fcls[var][key] = val
 
         self.meta = {
-            key: MetadataGenerator(settings["metadata"], fcls, defer_check=True)
+            key: MetadataGenerator(cfg, fcls, defer_check=True)
             for key, fcls in self.fcls.items()
         }
 
@@ -48,8 +49,6 @@ class Reco2FromGenExecutor(LArSoftExecutor):
             DefaultStageTypes.RECO2,
             DefaultStageTypes.CAF,
         ]
-        # this is the stage order for adding new variations on existing detsim files
-        # self.stage_order = [DefaultStageTypes.DETSIM, DefaultStageTypes.RECO1, DefaultStageTypes.RECO2, DefaultStageTypes.CAF]
 
         # when we construct the scrub stage, this will let the workflow know to
         # treat a detsim stage as the parent of scrub, instead of a fixed input file
@@ -95,7 +94,14 @@ class Reco2FromGenExecutor(LArSoftExecutor):
         var_caf_stages = {}
         for var in self.variations:
             svar = Stage(DefaultStageTypes.CAF, stage_order=self.var_stage_order)
+            svar.run_dir = self.get_caf_dir(
+                iteration
+            )  # Note: this might need adjustment if var_dirs is used
+            # Restore specific var_dir handling:
+            from sbn_parsl.utils import get_caf_dir
+
             svar.run_dir = get_caf_dir(var_dirs[var], iteration)
+
             svar.runfunc = self.runfuncs[var]
             var_caf_stages[var] = svar
             workflow.add_final_stage(svar)
@@ -108,6 +114,9 @@ class Reco2FromGenExecutor(LArSoftExecutor):
                     DefaultStageTypes.RECO2, stage_order=self.var_stage_order
                 )
                 svar_reco2.runfunc = self.runfuncs_no_meta[var]
+
+                from sbn_parsl.utils import get_subrun_dir
+
                 svar_reco2.run_dir = get_subrun_dir(var_dirs[var], inst)
 
                 svar_reco1 = Stage(
@@ -137,93 +146,6 @@ class Reco2FromGenExecutor(LArSoftExecutor):
                 svar_detsim.combine = True
 
         return workflow
-
-    def _setup_single_workflow(self, iteration: int, input_files=None, last_file=None):
-        cv_dir = self.output_dir / "cv"
-
-        var_dirs = {}
-        for var in self.variations:
-            var_dirs[var] = self.output_dir / var
-
-        workflow = Workflow(self.stage_order, default_fcls=self.default_fcls)
-        s = Stage(DefaultStageTypes.CAF)
-        s.run_dir = get_caf_dir(cv_dir, iteration)
-        s.runfunc = self.runfuncs["cv"]
-        workflow.add_final_stage(s)
-
-        # CAF for each variation
-        var_caf_stages = {}
-        for var in self.variations:
-            svar = Stage(DefaultStageTypes.CAF, stage_order=self.var_stage_order)
-            svar.run_dir = get_caf_dir(var_dirs[var], iteration)
-            svar.runfunc = self.runfuncs[var]
-            var_caf_stages[var] = svar
-            workflow.add_final_stage(svar)
-
-        for i in range(self.subruns_per_caf):
-            inst = iteration * self.subruns_per_caf + i
-            # create reco2 file from MC, only need to specify the last stage
-            # since there are no inputs
-            scv_reco2 = Stage(DefaultStageTypes.RECO2)
-            scv_reco2.run_dir = get_subrun_dir(cv_dir, inst)
-
-            scv_reco1 = Stage(DefaultStageTypes.RECO1)
-            scv_detsim = Stage(DefaultStageTypes.DETSIM)
-
-            scv_scrub = Stage(
-                DefaultStageTypes.SCRUB, stage_order=self.scrub_stage_order
-            )
-            scv_scrub.run_dir = get_subrun_dir(cv_dir, inst)
-            scv_scrub.runfunc = self.runfuncs["cv"]
-
-            s.add_parents(scv_reco2)
-            scv_reco2.add_parents(scv_reco1)
-            scv_reco1.add_parents(scv_detsim)
-            scv_scrub.add_parents(scv_detsim)
-            # scv_scrub.add_input_file(input_files[i])
-
-            for var, svar in var_caf_stages.items():
-                svar_reco2 = Stage(
-                    DefaultStageTypes.RECO2, stage_order=self.var_stage_order
-                )
-                svar_reco2.fcl = self.fcls[var]["reco2"]
-                svar_reco2.run_dir = get_subrun_dir(var_dirs[var], inst)
-
-                svar_reco1 = Stage(
-                    DefaultStageTypes.RECO1, stage_order=self.var_stage_order
-                )
-                svar_reco1.fcl = self.fcls[var]["reco1"]
-
-                svar_detsim = Stage(
-                    DefaultStageTypes.DETSIM, stage_order=self.var_stage_order
-                )
-                svar_detsim.fcl = self.fcls[var]["detsim"]
-
-                svar_g4 = Stage(DefaultStageTypes.G4, stage_order=self.var_stage_order)
-                svar_g4.fcl = self.fcls[var]["g4"]
-
-                svar.add_parents(svar_reco2)
-                svar_reco2.add_parents(svar_reco1)
-                svar_reco1.add_parents(svar_detsim)
-                svar_detsim.add_parents(scv_scrub)
-                # svar_g4.add_parents(scv_scrub)
-
-        return workflow
-
-
-def get_subrun_dir(prefix: pathlib.Path, subrun: int):
-    """Returns a path with directory structure like XXXX00/XXXXXX"""
-    return (
-        prefix
-        / f"{(subrun // 1000):06d}"
-        / f"{(subrun // 100):06d}"
-        / f"subrun_{subrun:06d}"
-    )
-
-
-def get_caf_dir(prefix: pathlib.Path, subrun: int):
-    """Returns a path with directory structure like XXXX00/caf/XXXXXX"""
-    return prefix / f"{(subrun // 1000):06d}" / "caf" / f"subrun_{subrun:06d}"
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 [run]
-output = "/lus/flare/projects/neutrinoGPU/twester/caf_from_gen_test"
 nsubruns = 1
 
 [workflow]
@@ -18,7 +17,6 @@ lar_args = ""
 queue = "debug"
 walltime = "1:00:00"
 nodes_per_block = 1
-strategy = "simple"
 allocation = "14454"
 retries = 0
 
@@ -31,5 +29,4 @@ reco2 = "standard_reco2_sbnd.fcl"
 caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl"
 
 [metadata]
-exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 mdprojectversion = "v10_06_02"

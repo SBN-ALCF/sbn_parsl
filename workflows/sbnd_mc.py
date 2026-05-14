@@ -3,7 +3,6 @@
 # This workflow generates full MC events from generator through CAF stage
 
 import sys
-import pathlib
 import functools
 
 from sbn_parsl.workflow import (
@@ -14,7 +13,7 @@ from sbn_parsl.workflow import (
     DefaultStageTypes,
 )
 from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
-from sbn_parsl.components import mc_runfunc_sbnd
+from sbn_parsl.experiments.sbnd import mc_runfunc_sbnd
 from sbn_parsl.app import entry_point
 from sbn_parsl.metadata import MetadataGenerator
 
@@ -29,9 +28,7 @@ class CAFFromGenExecutor(LArSoftExecutor):
         super().__init__(cfg)
         self.meta = None
         if cfg.metadata.exe:
-            self.meta = MetadataGenerator(
-                cfg.metadata.__dict__, self.fcls, defer_check=True
-            )
+            self.meta = MetadataGenerator(cfg, self.fcls, defer_check=True)
 
         self.stage_order = [StageType.from_str(key) for key in self.fcls.keys()]
         self.subruns_per_caf = cfg.workflow.subruns_per_caf
@@ -47,10 +44,10 @@ class CAFFromGenExecutor(LArSoftExecutor):
         s = Stage(DefaultStageTypes.CAF)
         s.runfunc = self.runfunc
         workflow.add_final_stage(s)
-        s.run_dir = get_caf_dir(self.output_dir, iteration)
+        s.run_dir = self.get_caf_dir(iteration)
 
         for i in range(self.subruns_per_caf):
-            iteration * self.subruns_per_caf + i
+            inst = iteration * self.subruns_per_caf + i
 
             s_reco2 = Stage(DefaultStageTypes.RECO2)
             s_reco1 = Stage(DefaultStageTypes.RECO1)
@@ -68,7 +65,7 @@ class CAFFromGenExecutor(LArSoftExecutor):
             s_reco2.combine = True
 
             # each workflow will have its own directory
-            s_reco2.run_dir = get_subrun_dir(self.output_dir)
+            s_reco2.run_dir = self.get_run_dir(inst)
 
         return workflow
 
@@ -77,24 +74,9 @@ class CAFFromGenExecutor(LArSoftExecutor):
         s = Stage(DefaultStageTypes.GEN)
         s.runfunc = self.runfunc
         workflow.add_final_stage(s)
-        s.run_dir = get_subrun_dir(self.output_dir, iteration)
+        s.run_dir = self.get_run_dir(iteration)
 
         return workflow
-
-
-def get_subrun_dir(prefix: pathlib.Path, subrun: int):
-    """Returns a path with directory structure like XXXX00/XXXXXX"""
-    return (
-        prefix
-        / f"{(subrun // 1000):06d}"
-        / f"{(subrun // 100):06d}"
-        / f"subrun_{subrun:06d}"
-    )
-
-
-def get_caf_dir(prefix: pathlib.Path, subrun: int):
-    """Returns a path with directory structure like XXXX00/caf/XXXXXX"""
-    return prefix / f"{(subrun // 1000):06d}" / "caf" / f"subrun_{subrun:06d}"
 
 
 if __name__ == "__main__":

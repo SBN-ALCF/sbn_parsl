@@ -1,5 +1,4 @@
 [run]
-output = "/lus/eagle/projects/neutrinoGPU/twester/spine_marchprod_test2"
 nsubruns = 1
 files_per_subrun = 16
 
