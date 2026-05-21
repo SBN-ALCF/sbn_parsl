@@ -15,5 +15,7 @@ worker_init = [
 [larsoft]
 container_path = "/home/twester/containers/slf7.sif"
 larsoft_top = "/home/twester/scisoft/larsoft"
-metadata_exe = "/home/twester/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 simulation_inputs = ""
+
+[larsoft.metadata]
+exe = "/home/twester/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"

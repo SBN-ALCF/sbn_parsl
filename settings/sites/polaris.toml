@@ -16,5 +16,7 @@ worker_init = [
 [larsoft]
 container_path = "/lus/flare/projects/neutrinoGPU/containers/slf7.sif"
 larsoft_top = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft"
-metadata_exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 simulation_inputs = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
+
+[larsoft.metadata]
+exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"

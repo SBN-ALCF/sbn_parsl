@@ -26,5 +26,5 @@ cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rock
 no_longitudinal_diffusion = { detsim = "standard_detsim_sbnd_no_longitudinal_diffusion_detvar.fcl" }
 no_transverse_diffusion = { detsim = "standard_detsim_sbnd_no_transverse_diffusion_detvar.fcl" }
 
-[metadata]
+[larsoft.metadata]
 mdprojectversion = "v10_06_00_05"

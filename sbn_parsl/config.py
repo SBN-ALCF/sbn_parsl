@@ -28,8 +28,7 @@ class SiteConfig:
     worker_init: Any = ""
     worker_venv_name: str = "sbn"
 
-    # LArSoft / Software Parameters
-    metadata_exe: Optional[str] = None
+
 
 
 @dataclass
@@ -278,23 +277,11 @@ class Config:
         wf_larsoft = wf_data.get("larsoft", {})
         wf_metadata = wf_larsoft.get("metadata", {})
 
-        # Support legacy top-level [metadata] in workflow TOML
-        if "metadata" in wf_data:
-            wf_metadata = wf_data["metadata"]
-
         merged_metadata = {}
         # Apply site-level metadata defaults
         merged_metadata.update(site_metadata)
         # Apply workflow-level metadata overrides
         merged_metadata.update(wf_metadata)
-
-        # Support legacy metadata_exe from site config
-        if "metadata_exe" in site_larsoft and not merged_metadata.get("exe"):
-            merged_metadata["exe"] = site_larsoft["metadata_exe"]
-
-        # Support legacy metadata_exe from workflow TOML or other overrides
-        if "metadata_exe" in wf_data and not merged_metadata.get("exe"):
-            merged_metadata["exe"] = wf_data["metadata_exe"]
 
         metadata_cfg = MetadataConfig(**merged_metadata)
 

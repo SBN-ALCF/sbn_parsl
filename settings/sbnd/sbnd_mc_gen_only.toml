@@ -23,5 +23,5 @@ retries = 0
 [fcls]
 gen = "prodgenie_corsika_proton_rockbox0p1_sbnd.fcl"
 
-[metadata]
+[larsoft.metadata]
 mdprojectversion = "v10_14_02_04"

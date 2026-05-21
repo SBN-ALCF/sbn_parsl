@@ -28,4 +28,4 @@ reco1 = "standard_reco1_sbnd.fcl"
 reco2 = "standard_reco2_sbnd.fcl"
 caf = "cafmakerjob_sbnd_systtools_and_fluxwgt.fcl"
 
-[metadata]
+[larsoft.metadata]

@@ -28,5 +28,5 @@ PMTLowEff = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sb
 0xSCE = { scrub = "scrub_wcls_detsim_reco1.fcl", detsim = "detsim_enable_zerospacecharge_sbnd.fcl" }
 2xSCE = { scrub = "scrub_wcls_detsim_reco1.fcl", detsim = "detsim_enable_doublespacecharge_sbnd.fcl" }
 
-[metadata]
+[larsoft.metadata]
 mdprojectversion = "v10_06_00_09"
