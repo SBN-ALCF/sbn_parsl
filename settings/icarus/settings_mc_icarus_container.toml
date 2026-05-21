@@ -20,7 +20,7 @@ max_workers_per_node = 70
 allocation = "neutrinoGPU::ICARUSRun4_Summer2025_MC"
 retries = 0
 
-[fcls]
+[workflow.fcls]
 overlay = "simulation_genie_icarus_bnb_overlays_volDetEnclosure_fiducial.fcl"
 g4 = "larg4_icarus_cosmics_sce.fcl"
 detsim = "detsim_2d_icarus_refactored_yzsim_overlay_Run4.fcl"

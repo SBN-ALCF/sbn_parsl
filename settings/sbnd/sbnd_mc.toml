@@ -20,7 +20,7 @@ nodes_per_block = 1
 allocation = "neutrinoGPU::debug2"
 retries = 0
 
-[fcls]
+[workflow.fcls]
 gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl"
 g4 = "standard_g4_rockbox_sbnd.fcl"
 detsim = "standard_detsim_sbnd.fcl"

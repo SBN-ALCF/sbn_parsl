@@ -18,7 +18,7 @@ nodes_per_block = 1
 allocation = "gpu_hack"
 retries = 0
 
-[fcls]
+[workflow.fcls]
 reco1 = "/home/twester/scratch/stage0_run2_wcdnn_icarus.fcl"
 reco2 = "stage1_run2_icarus.fcl"
 caf = "cafmakerjob_icarus_data.fcl"

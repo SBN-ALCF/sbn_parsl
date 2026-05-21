@@ -20,7 +20,7 @@ nodes_per_block = 384
 allocation = "neutrinoGPU::SBNDDetVarReprocess_Fall2025"
 retries = 0
 
-[fcls]
+[workflow.fcls]
 cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rockbox_sbnd.fcl", detsim = "standard_detsim_sbnd.fcl", reco1 = "standard_reco1_sbnd.fcl", reco2 = "standard_reco2_sbnd.fcl", caf = "cafmakerjob_sbnd_sce.fcl" }
 PMTGainFluct = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sbnd_PMTGainFluct.fcl" }
 PMTHighNoise = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sbnd_PMTHighNoise.fcl" }

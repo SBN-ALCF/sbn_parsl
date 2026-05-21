@@ -7,6 +7,25 @@ import json
 import hashlib
 
 
+class AppConfigNamespace:
+    """Dynamically wraps configuration dictionaries into dot-accessible attributes."""
+    def __init__(self, data: Dict[str, Any]):
+        for k, v in data.items():
+            if isinstance(v, dict):
+                setattr(self, k, AppConfigNamespace(v))
+            else:
+                setattr(self, k, v)
+
+    def to_dict(self) -> Dict[str, Any]:
+        res = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, AppConfigNamespace):
+                res[k] = v.to_dict()
+            else:
+                res[k] = v
+        return res
+
+
 @dataclass
 class SiteConfig:
     """
@@ -108,6 +127,12 @@ class WorkflowConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "WorkflowConfig":
         """Load from dict, separating known fields from extras."""
+        data = dict(data)
+        if "fcl" in data:
+            raise ValueError(
+                "The singular [workflow.fcl] heading is no longer supported. Please use the plural [workflow.fcls] heading instead."
+            )
+
         known_fields = {name for name in cls.__dataclass_fields__ if name != "extra"}
         kwargs = {k: v for k, v in data.items() if k in known_fields}
         extra = {k: v for k, v in data.items() if k not in known_fields}
@@ -145,14 +170,6 @@ class Config:
     larsoft: LArSoftConfig
     workflow: WorkflowConfig
     run: RunConfig
-    metadata: MetadataConfig = field(default_factory=MetadataConfig)
-
-    def __post_init__(self):
-        if hasattr(self, "larsoft") and hasattr(self.larsoft, "metadata"):
-            if self.larsoft.metadata and (not self.metadata or self.metadata.exe is None):
-                self.metadata = self.larsoft.metadata
-            elif self.metadata and (not self.larsoft.metadata or self.larsoft.metadata.exe is None):
-                self.larsoft.metadata = self.metadata
 
     def get_science_hash(self) -> str:
         """
@@ -164,8 +181,16 @@ class Config:
         identity = {
             "larsoft": {k: v for k, v in self.larsoft.__dict__.items() if k != "metadata"},
             "workflow": self.workflow.__dict__,
-            "metadata": self.metadata.__dict__,
+            "metadata": self.larsoft.metadata.__dict__,
         }
+
+        # Add active dynamic apps
+        active_apps = getattr(self, "_active_dynamic_apps", [])
+        if active_apps:
+            identity["apps"] = {
+                app_name: getattr(self, app_name).to_dict()
+                for app_name in sorted(active_apps)
+            }
 
         # Convert to a stable JSON string for hashing
         def _stable_repr(obj):
@@ -183,7 +208,6 @@ class Config:
         data = self.to_dict()
         if "metadata" in data:
             del data["metadata"]
-
 
         def _serialize(val) -> str:
             if isinstance(val, str):
@@ -206,10 +230,30 @@ class Config:
                 return str(val)
 
         lines = []
-        for section, content in sorted(data.items()):
-            lines.append(f"[{section}]")
-            for k, v in sorted(content.items()):
+        sections_to_write = ["site", "job", "larsoft", "larsoft.metadata", "workflow", "workflow.fcls", "run"]
+        active_apps = getattr(self, "_active_dynamic_apps", [])
+        for app_name in sorted(active_apps):
+            sections_to_write.append(f"app.{app_name}")
+        
+        for sec in sections_to_write:
+            sec_parts = sec.split(".")
+            sec_data = data
+            for part in sec_parts:
+                if isinstance(sec_data, dict):
+                    sec_data = sec_data.get(part, None)
+                else:
+                    sec_data = None
+            
+            if not sec_data:
+                continue
+                
+            lines.append(f"[{sec}]")
+            for k, v in sorted(sec_data.items()):
                 if v is None:
+                    continue
+                if sec == "larsoft" and k == "metadata":
+                    continue
+                if sec == "workflow" and k == "fcls":
                     continue
                 lines.append(f"{k} = {_serialize(v)}")
             lines.append("")
@@ -246,13 +290,15 @@ class Config:
             site_data = tomllib.load(f)
 
         # Merge [site] and [larsoft] sections from site config
-        # We also support a flat structure for backward compatibility during transition
+        # We require structured [site] and/or [larsoft] sections
+        if "site" not in site_data and "larsoft" not in site_data:
+            raise ValueError(
+                f"Site configuration file '{site_path.name}' is missing required '[site]' and '[larsoft]' structured headers."
+            )
+
         merged_site_data = {}
-        if "site" in site_data or "larsoft" in site_data:
-            merged_site_data.update(site_data.get("site", {}))
-            merged_site_data.update(site_data.get("larsoft", {}))
-        else:
-            merged_site_data = site_data
+        merged_site_data.update(site_data.get("site", {}))
+        merged_site_data.update(site_data.get("larsoft", {}))
 
         # Only pass valid fields to SiteConfig
         site_fields = {f.name for f in SiteConfig.__dataclass_fields__.values()}
@@ -262,6 +308,11 @@ class Config:
         # 3. Load workflow TOML
         with open(workflow_path, "rb") as f:
             wf_data = tomllib.load(f)
+
+        if "fcls" in wf_data or "fcl" in wf_data:
+            raise ValueError(
+                "Top-level [fcl] or [fcls] blocks are no longer supported. Please use the nested [workflow.fcls] block."
+            )
 
         # Get defaults from site config's [larsoft] section
         site_larsoft = site_data.get("larsoft", {}) if "larsoft" in site_data else site_data
@@ -291,12 +342,8 @@ class Config:
 
         larsoft_cfg = LArSoftConfig(**larsoft_data)
 
-        # Load workflow config, merging top-level fcls if present
+        # Load workflow config
         wf_raw_data = wf_data.get("workflow", {})
-        if "fcls" in wf_data:
-            if "fcls" not in wf_raw_data:
-                wf_raw_data["fcls"] = {}
-            wf_raw_data["fcls"].update(wf_data["fcls"])
 
         workflow_cfg = WorkflowConfig.from_dict(wf_raw_data)
 
@@ -313,19 +360,38 @@ class Config:
         # Ensure required fields for JobConfig are present or provided
         job_cfg = JobConfig(**job_data)
 
-        return cls(
+        cfg = cls(
             site=site_cfg,
             job=job_cfg,
             larsoft=larsoft_cfg,
             workflow=workflow_cfg,
             run=run_cfg,
-            metadata=metadata_cfg,
         )
+
+        # 5. Dynamic App Config parsing and merging
+        wf_app_section = wf_data.get("app", {})
+        site_app_section = site_data.get("app", {})
+        active_apps = []
+        for app_name, wf_app_data in wf_app_section.items():
+            if isinstance(wf_app_data, dict):
+                merged_app_data = {}
+                if app_name in site_app_section and isinstance(site_app_section[app_name], dict):
+                    merged_app_data.update(site_app_section[app_name])
+                merged_app_data.update(wf_app_data)
+
+                app_cfg = AppConfigNamespace(merged_app_data)
+                setattr(cfg, app_name, app_cfg)
+                active_apps.append(app_name)
+
+        setattr(cfg, "_active_dynamic_apps", active_apps)
+        return cfg
 
     def to_dict(self) -> Dict:
         """Deep conversion to dict for legacy compatibility."""
 
         def _asdict(obj):
+            if isinstance(obj, AppConfigNamespace):
+                return obj.to_dict()
             if isinstance(obj, WorkflowConfig):
                 # Flatten the 'extra' dict into the main dictionary
                 res = {}
@@ -338,7 +404,7 @@ class Config:
                         res[k] = _asdict(v)
                 return res
             elif hasattr(obj, "__dict__"):
-                return {k: _asdict(v) for k, v in obj.__dict__.items()}
+                return {k: _asdict(v) for k, v in obj.__dict__.items() if not k.startswith("_")}
             elif isinstance(obj, (list, tuple)):
                 return [_asdict(i) for i in obj]
             elif isinstance(obj, dict):
@@ -346,4 +412,11 @@ class Config:
             else:
                 return obj
 
-        return _asdict(self)
+        raw_dict = _asdict(self)
+        active_apps = getattr(self, "_active_dynamic_apps", [])
+        if active_apps:
+            raw_dict["app"] = {}
+            for app_name in active_apps:
+                if app_name in raw_dict:
+                    raw_dict["app"][app_name] = raw_dict.pop(app_name)
+        return raw_dict

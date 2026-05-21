@@ -20,7 +20,7 @@ nodes_per_block = 1024
 allocation = "gpu_hack"
 retries = 0
 
-[fcls]
+[workflow.fcls]
 gen = "prodgenie_corsika_proton_rockbox0p1_sbnd.fcl"
 
 [larsoft.metadata]

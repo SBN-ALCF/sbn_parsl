@@ -76,7 +76,7 @@ experiment = "sbnd"
 version = "v1"
 qual = "e26:prof"
 
-[fcls]
+[workflow.fcls]
 gen = "gen.fcl"
 g4 = "g4.fcl"
 detsim = "detsim.fcl"

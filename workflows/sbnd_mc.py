@@ -27,7 +27,7 @@ class CAFFromGenExecutor(LArSoftExecutor):
     def __init__(self, cfg: Config):
         super().__init__(cfg)
         self.meta = None
-        if cfg.metadata.exe:
+        if cfg.larsoft.metadata.exe:
             self.meta = MetadataGenerator(cfg, self.fcls, defer_check=True)
 
         self.stage_order = [StageType.from_str(key) for key in self.fcls.keys()]

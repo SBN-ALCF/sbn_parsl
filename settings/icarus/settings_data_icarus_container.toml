@@ -19,7 +19,7 @@ nodes_per_block = 1
 allocation = "14186"
 retries = 0
 
-[fcls]
+[workflow.fcls]
 stage0 = "stage0_run2_wcdnn_icarus.fcl"
 stage1 = "stage1_run2_icarus.fcl"
 caf = "cafmakerjob_icarus_data.fcl"

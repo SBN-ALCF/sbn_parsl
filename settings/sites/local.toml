@@ -19,3 +19,8 @@ simulation_inputs = ""
 
 [larsoft.metadata]
 exe = "/home/twester/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
+
+[app.spine]
+model_path = "/lus/flare/projects/neutrinoGPU/models/spine/model.pt"
+batch_size = 32
+device = "cuda"

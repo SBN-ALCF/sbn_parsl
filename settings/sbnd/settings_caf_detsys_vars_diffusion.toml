@@ -21,7 +21,7 @@ nodes_per_block = 1
 allocation = "14454"
 retries = 1
 
-[fcls]
+[workflow.fcls]
 cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rockbox_sbnd.fcl", detsim = "standard_detsim_sbnd.fcl", reco1 = "standard_reco1_sbnd.fcl", reco2 = "standard_reco2_sbnd.fcl", caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl", scrub = "scrub_wcls_detsim_reco1.fcl" }
 no_longitudinal_diffusion = { detsim = "standard_detsim_sbnd_no_longitudinal_diffusion_detvar.fcl" }
 no_transverse_diffusion = { detsim = "standard_detsim_sbnd_no_transverse_diffusion_detvar.fcl" }

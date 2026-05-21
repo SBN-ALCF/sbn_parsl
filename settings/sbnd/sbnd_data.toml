@@ -19,7 +19,7 @@ nodes_per_block = 1
 allocation = "neutrinoGPU::debug2"
 retries = 0
 
-[fcls]
+[workflow.fcls]
 decode = "run_decoders_job.fcl"
 pot = "run_sbndbnbinfo_sbn.fcl"
 reco1 = "reco1_data_dnnroi.fcl"

@@ -67,10 +67,14 @@ def test_metadata_generator():
     cfg = Config(
         site=MagicMock(spec=SiteConfig),
         job=MagicMock(spec=JobConfig),
-        larsoft=LArSoftConfig(experiment="sbnd", version="v1", qual="e26"),
+        larsoft=LArSoftConfig(
+            experiment="sbnd",
+            version="v1",
+            qual="e26",
+            metadata=MetadataConfig(exe="/path/to/injector", mdprojectversion="v1"),
+        ),
         workflow=MagicMock(spec=WorkflowConfig),
         run=MagicMock(spec=RunConfig),
-        metadata=MetadataConfig(exe="/path/to/injector", mdprojectversion="v1"),
     )
 
     mg = MetadataGenerator(cfg)
@@ -97,10 +101,14 @@ def test_larsoft_runfunc_with_metadata():
     executor.cfg = Config(
         site=MagicMock(spec=SiteConfig),
         job=MagicMock(spec=JobConfig),
-        larsoft=LArSoftConfig(experiment="sbnd", version="v1", qual="e26"),
+        larsoft=LArSoftConfig(
+            experiment="sbnd",
+            version="v1",
+            qual="e26",
+            metadata=MagicMock(spec=MetadataConfig),
+        ),
         workflow=MagicMock(spec=WorkflowConfig),
         run=RunConfig(output="/tmp/out", require_success=False),
-        metadata=MagicMock(spec=MetadataConfig),
     )
     executor.cfg.larsoft.container_path = "/path/to/container"
     executor.cfg.larsoft.larsoft_top = "/path/to/larsoft"

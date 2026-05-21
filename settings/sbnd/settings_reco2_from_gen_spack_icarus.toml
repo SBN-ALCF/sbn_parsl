@@ -18,7 +18,7 @@ walltime = "72:00:00"
 nodes_per_block = 1
 allocation = "icarusHPC"
 
-[fcls]
+[workflow.fcls]
 gen = "/grand/neutrinoGPU/software/spack_builds/test_fcls/prodcorsika_genie_standard_icarus.fcl"
 g4 = "standard_g4_icarus_sce.fcl"
 detsim = "detsim_2d_icarus.fcl"

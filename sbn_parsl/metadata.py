@@ -29,9 +29,8 @@ class MetadataGenerator:
         self.md_config = md_config
         self.fclnames = fclnames or {}
 
-        # Determine if we have a full Config or just the metadata part
-        if hasattr(md_config, "metadata"):
-            self.md = md_config.metadata
+        if hasattr(md_config, "larsoft") and hasattr(md_config.larsoft, "metadata"):
+            self.md = md_config.larsoft.metadata
             self.experiment = md_config.larsoft.experiment
         elif isinstance(md_config, dict):
             # Fallback for when just the metadata dict is passed

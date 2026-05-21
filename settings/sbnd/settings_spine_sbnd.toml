@@ -11,6 +11,6 @@ nodes_per_block = 1
 allocation = "14453"
 retries = 3
 
-[fcls]
+[workflow.fcls]
 
 [larsoft.metadata]
