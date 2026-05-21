@@ -288,7 +288,18 @@ class Config:
         """Deep conversion to dict for legacy compatibility."""
 
         def _asdict(obj):
-            if hasattr(obj, "__dict__"):
+            if isinstance(obj, WorkflowConfig):
+                # Flatten the 'extra' dict into the main dictionary
+                res = {}
+                for k, v in obj.__dict__.items():
+                    if k == "extra":
+                        if isinstance(v, dict):
+                            for ek, ev in v.items():
+                                res[ek] = _asdict(ev)
+                    else:
+                        res[k] = _asdict(v)
+                return res
+            elif hasattr(obj, "__dict__"):
                 return {k: _asdict(v) for k, v in obj.__dict__.items()}
             elif isinstance(obj, (list, tuple)):
                 return [_asdict(i) for i in obj]

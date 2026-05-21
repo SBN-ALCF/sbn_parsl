@@ -83,15 +83,24 @@ def test_config_load_and_save(tmp_path_extended):
         cfg.save(save_path)
         assert save_path.exists()
 
-        # Load back
+        # Load back (direct raw TOML check)
         with open(save_path, "rb") as f:
             saved_data = tomllib.load(f)
         assert saved_data["larsoft"]["version"] == "v2"
         assert saved_data["site"]["scheduler_options"] == "#SBATCH -A neutrinoGPU\n#SBATCH -q debug\n#SBATCH -n 4"
         assert saved_data["site"]["launcher_options"] == 'container "sbn"'
-        assert saved_data["workflow"]["extra"]["nested_dict"]["test_key"] == "some\nnewline"
-        assert saved_data["workflow"]["extra"]["nested_dict"]["another"] == "quote\""
-        assert saved_data["workflow"]["extra"]["nested_list"][0] == "item 1\nwith newline"
+        # The extra dictionary must be flattened directly under 'workflow'
+        assert saved_data["workflow"]["nested_dict"]["test_key"] == "some\nnewline"
+        assert saved_data["workflow"]["nested_dict"]["another"] == "quote\""
+        assert saved_data["workflow"]["nested_list"][0] == "item 1\nwith newline"
+
+        # Load back via Config.load to verify identical science hash stability
+        cfg_loaded = Config.load(
+            save_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
+        )
+        assert cfg_loaded.get_science_hash() == cfg.get_science_hash()
+        assert cfg_loaded.workflow.extra["nested_dict"]["test_key"] == "some\nnewline"
+        assert cfg_loaded.workflow.extra["nested_list"][0] == "item 1\nwith newline"
 
 
 def test_cli_science_mismatch_prevents_run(tmp_path_extended, mock_wfe):
