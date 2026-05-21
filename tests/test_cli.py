@@ -66,6 +66,8 @@ def test_config_load_and_save(tmp_path_extended):
         )
 
         assert cfg.larsoft.version == "v1"
+        assert cfg.larsoft.container_path == "/path/to/container"
+        assert cfg.larsoft.larsoft_top == "/path/to/larsoft"
         assert cfg.site.max_futures == 100
 
         # Test science hash

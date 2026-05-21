@@ -102,8 +102,8 @@ def test_larsoft_runfunc_with_metadata():
         run=RunConfig(output="/tmp/out", require_success=False),
         metadata=MagicMock(spec=MetadataConfig),
     )
-    executor.cfg.site.container_path = "/path/to/container"
-    executor.cfg.site.larsoft_top = "/path/to/larsoft"
+    executor.cfg.larsoft.container_path = "/path/to/container"
+    executor.cfg.larsoft.larsoft_top = "/path/to/larsoft"
 
     executor.output_dir = pathlib.Path("/tmp/out")
     executor.name_salt = "salt"

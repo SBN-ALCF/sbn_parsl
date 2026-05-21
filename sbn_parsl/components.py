@@ -204,7 +204,7 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
         event_number = 1 + (context.lar_args.nevts * context.stage.stage_id[-1])
 
         # Use site-specific simulation_inputs if not provided in larsoft config
-        sim_inputs = context.cfg.site.simulation_inputs
+        sim_inputs = context.cfg.larsoft.simulation_inputs
 
         fcl_cmd = "\n".join(
             [
@@ -389,8 +389,8 @@ def larsoft_runfunc(
     lar_dict = executor.cfg.larsoft.__dict__.copy()
     lar_dict["overlay_str"] = overlay_str
     # Include site container info
-    lar_dict["container"] = executor.cfg.site.container_path
-    lar_dict["larsoft_top"] = executor.cfg.site.larsoft_top
+    lar_dict["container"] = executor.cfg.larsoft.container_path
+    lar_dict["larsoft_top"] = executor.cfg.larsoft.larsoft_top
 
     future = future_func(
         workdir=str(run_dir),

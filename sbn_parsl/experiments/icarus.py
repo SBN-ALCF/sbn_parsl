@@ -15,7 +15,7 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
     """generate bash commands that modify fcl"""
     fcl_cmd = ""
     fcl_name = context.fcl.name
-    sim_inputs = context.cfg.site.simulation_inputs
+    sim_inputs = context.cfg.larsoft.simulation_inputs
 
     if context.stage.stage_type.name == "overlay":
         fcl_cmd = "\n".join(

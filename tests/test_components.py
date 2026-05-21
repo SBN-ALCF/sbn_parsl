@@ -14,11 +14,12 @@ from sbn_parsl.config import Config, LArSoftConfig, SiteConfig, RunConfig
 def get_mock_cfg():
     cfg = MagicMock(spec=Config)
     cfg.site = MagicMock(spec=SiteConfig)
-    cfg.site.simulation_inputs = (
+    cfg.larsoft = MagicMock(spec=LArSoftConfig)
+    cfg.larsoft.simulation_inputs = (
         "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
     )
-    cfg.site.container_path = "/path/to/container"
-    cfg.site.larsoft_top = "/path/to/larsoft"
+    cfg.larsoft.container_path = "/path/to/container"
+    cfg.larsoft.larsoft_top = "/path/to/larsoft"
     cfg.run = MagicMock(spec=RunConfig)
     cfg.run.require_success = True
     return cfg

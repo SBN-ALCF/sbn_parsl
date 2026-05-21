@@ -29,9 +29,6 @@ class SiteConfig:
     worker_venv_name: str = "sbn"
 
     # LArSoft / Software Parameters
-    container_path: str = ""
-    larsoft_top: str = ""
-    simulation_inputs: str = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
     metadata_exe: Optional[str] = None
 
 
@@ -74,6 +71,9 @@ class LArSoftConfig:
     flux_type: str = "dk2nu"
     overlays: List[str] = field(default_factory=list)
     tarballs: Dict[str, str] = field(default_factory=dict)
+    container_path: str = ""
+    larsoft_top: str = ""
+    simulation_inputs: str = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
 
 
 @dataclass
@@ -241,13 +241,28 @@ class Config:
         else:
             merged_site_data = site_data
 
-        site_cfg = SiteConfig(**merged_site_data)
+        # Only pass valid fields to SiteConfig
+        site_fields = {f.name for f in SiteConfig.__dataclass_fields__.values()}
+        filtered_site_data = {k: v for k, v in merged_site_data.items() if k in site_fields}
+        site_cfg = SiteConfig(**filtered_site_data)
 
         # 3. Load workflow TOML
         with open(workflow_path, "rb") as f:
             wf_data = tomllib.load(f)
 
-        larsoft_cfg = LArSoftConfig(**wf_data.get("larsoft", {}))
+        # Get defaults from site config's [larsoft] section
+        site_larsoft = site_data.get("larsoft", {}) if "larsoft" in site_data else site_data
+
+        # Merge site-specific larsoft defaults with workflow's larsoft config
+        larsoft_data = {}
+        for key in ["container_path", "larsoft_top", "simulation_inputs"]:
+            if key in site_larsoft:
+                larsoft_data[key] = site_larsoft[key]
+
+        # Now update with whatever is in workflow larsoft config
+        larsoft_data.update(wf_data.get("larsoft", {}))
+
+        larsoft_cfg = LArSoftConfig(**larsoft_data)
 
         # Load workflow config, merging top-level fcls if present
         wf_raw_data = wf_data.get("workflow", {})
