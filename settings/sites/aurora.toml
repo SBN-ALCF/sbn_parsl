@@ -8,6 +8,11 @@ cpu_affinity = "none"
 available_accelerators = 102
 pbs_filesystems = "home:flare"
 worker_venv_name = "sbn"
+worker_init = [
+    "export TMPDIR=/tmp/",
+    "module load frameworks",
+    "source ~/.venv/sbn/bin/activate"
+]
 
 [larsoft]
 container_path = "/lus/flare/projects/neutrinoGPU/containers/slf7.sif"

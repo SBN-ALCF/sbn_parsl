@@ -25,7 +25,7 @@ class SiteConfig:
     cpu_affinity: str = "none"
     available_accelerators: Any = None
     pbs_filesystems: str = "home"
-    worker_init: str = ""
+    worker_init: Any = ""
     worker_venv_name: str = "sbn"
 
     # LArSoft / Software Parameters
@@ -52,6 +52,16 @@ class JobConfig:
 
 
 @dataclass
+class MetadataConfig:
+    """
+    Metadata injection configuration parameters.
+    """
+
+    exe: Optional[str] = None
+    mdprojectversion: Optional[str] = None
+
+
+@dataclass
 class LArSoftConfig:
     """
     Configuration options specific to the LArSoft execution environment.
@@ -74,6 +84,7 @@ class LArSoftConfig:
     container_path: str = ""
     larsoft_top: str = ""
     simulation_inputs: str = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
+    metadata: MetadataConfig = field(default_factory=MetadataConfig)
 
 
 @dataclass
@@ -104,14 +115,6 @@ class WorkflowConfig:
         return cls(**kwargs, extra=extra)
 
 
-@dataclass
-class MetadataConfig:
-    """
-    Metadata injection configuration parameters.
-    """
-
-    exe: Optional[str] = None
-    mdprojectversion: Optional[str] = None
 
 
 @dataclass
@@ -145,14 +148,22 @@ class Config:
     run: RunConfig
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
 
+    def __post_init__(self):
+        if hasattr(self, "larsoft") and hasattr(self.larsoft, "metadata"):
+            if self.larsoft.metadata and (not self.metadata or self.metadata.exe is None):
+                self.metadata = self.larsoft.metadata
+            elif self.metadata and (not self.larsoft.metadata or self.larsoft.metadata.exe is None):
+                self.larsoft.metadata = self.metadata
+
     def get_science_hash(self) -> str:
         """
         Returns a hash representing the 'Science Identity' of this run.
         Excludes transient job settings, site infrastructure, and nsubruns.
         """
         # We include larsoft, workflow, and metadata
+        # Exclude metadata from larsoft dict to preserve stable science hash identity representation
         identity = {
-            "larsoft": self.larsoft.__dict__,
+            "larsoft": {k: v for k, v in self.larsoft.__dict__.items() if k != "metadata"},
             "workflow": self.workflow.__dict__,
             "metadata": self.metadata.__dict__,
         }
@@ -171,6 +182,9 @@ class Config:
     def save(self, path: pathlib.Path):
         """Save the current configuration to a TOML file."""
         data = self.to_dict()
+        if "metadata" in data:
+            del data["metadata"]
+
 
         def _serialize(val) -> str:
             if isinstance(val, str):
@@ -259,8 +273,34 @@ class Config:
             if key in site_larsoft:
                 larsoft_data[key] = site_larsoft[key]
 
+        # Extract nested metadata defaults and overrides
+        site_metadata = site_larsoft.get("metadata", {})
+        wf_larsoft = wf_data.get("larsoft", {})
+        wf_metadata = wf_larsoft.get("metadata", {})
+
+        # Support legacy top-level [metadata] in workflow TOML
+        if "metadata" in wf_data:
+            wf_metadata = wf_data["metadata"]
+
+        merged_metadata = {}
+        # Apply site-level metadata defaults
+        merged_metadata.update(site_metadata)
+        # Apply workflow-level metadata overrides
+        merged_metadata.update(wf_metadata)
+
+        # Support legacy metadata_exe from site config
+        if "metadata_exe" in site_larsoft and not merged_metadata.get("exe"):
+            merged_metadata["exe"] = site_larsoft["metadata_exe"]
+
+        # Support legacy metadata_exe from workflow TOML or other overrides
+        if "metadata_exe" in wf_data and not merged_metadata.get("exe"):
+            merged_metadata["exe"] = wf_data["metadata_exe"]
+
+        metadata_cfg = MetadataConfig(**merged_metadata)
+
         # Now update with whatever is in workflow larsoft config
-        larsoft_data.update(wf_data.get("larsoft", {}))
+        larsoft_data.update(wf_larsoft)
+        larsoft_data["metadata"] = metadata_cfg
 
         larsoft_cfg = LArSoftConfig(**larsoft_data)
 
@@ -277,10 +317,6 @@ class Config:
         if run_overrides:
             run_data.update({k: v for k, v in run_overrides.items() if v is not None})
         run_cfg = RunConfig(**run_data)
-
-        metadata_cfg = MetadataConfig(**wf_data.get("metadata", {}))
-        if metadata_cfg.exe is None:
-            metadata_cfg.exe = site_cfg.metadata_exe
 
         # 4. Job Config merging (Workflow TOML defaults -> CLI Overrides)
         job_data = wf_data.get("job", {})

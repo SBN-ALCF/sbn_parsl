@@ -32,27 +32,30 @@ def _worker_init(cfg: Config, mps: bool = True):
 
     # Custom worker init from site config
     if cfg.site.worker_init:
-        cmds.append(cfg.site.worker_init)
-
-    venv_name = cfg.site.worker_venv_name
-    hostname = socket.gethostname()
-    if cfg.site.name == "polaris" or "polaris" in hostname or hostname.startswith("x3"):
-        # use conda
-        cmds += [
-            "export TMPDIR=/tmp/",
-            f"source ~/.venv/{venv_name}/bin/activate",
-        ]
-    elif cfg.site.name == "aurora" or "aurora" in hostname or hostname.startswith("x4"):
-        # use pip with frameworks
-        cmds += [
-            "export TMPDIR=/tmp/",
-            "module load frameworks",
-            f"source ~/.venv/{venv_name}/bin/activate",
-        ]
+        if isinstance(cfg.site.worker_init, list):
+            cmds.extend(cfg.site.worker_init)
+        else:
+            cmds.extend([line.strip() for line in cfg.site.worker_init.split("\n") if line.strip()])
     else:
-        # Generic local or other site
-        if venv_name:
-            cmds += [f"source ~/.venv/{venv_name}/bin/activate"]
+        venv_name = cfg.site.worker_venv_name
+        hostname = socket.gethostname()
+        if cfg.site.name == "polaris" or "polaris" in hostname or hostname.startswith("x3"):
+            # use conda
+            cmds += [
+                "export TMPDIR=/tmp/",
+                f"source ~/.venv/{venv_name}/bin/activate",
+            ]
+        elif cfg.site.name == "aurora" or "aurora" in hostname or hostname.startswith("x4"):
+            # use pip with frameworks
+            cmds += [
+                "export TMPDIR=/tmp/",
+                "module load frameworks",
+                f"source ~/.venv/{venv_name}/bin/activate",
+            ]
+        else:
+            # Generic local or other site
+            if venv_name:
+                cmds += [f"source ~/.venv/{venv_name}/bin/activate"]
 
     if mps and cfg.site.name == "polaris":
         cmds += [
