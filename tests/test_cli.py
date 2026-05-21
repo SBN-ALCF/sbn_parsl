@@ -76,6 +76,10 @@ def test_config_load_and_save(tmp_path_extended):
 
         # Test save
         save_path = tmp_path_extended / "saved_config.toml"
+        cfg.site.scheduler_options = "#SBATCH -A neutrinoGPU\n#SBATCH -q debug\n#SBATCH -n 4"
+        cfg.site.launcher_options = 'container "sbn"'
+        cfg.workflow.extra["nested_dict"] = {"test_key": "some\nnewline", "another": "quote\""}
+        cfg.workflow.extra["nested_list"] = ["item 1\nwith newline", "item 2"]
         cfg.save(save_path)
         assert save_path.exists()
 
@@ -83,6 +87,11 @@ def test_config_load_and_save(tmp_path_extended):
         with open(save_path, "rb") as f:
             saved_data = tomllib.load(f)
         assert saved_data["larsoft"]["version"] == "v2"
+        assert saved_data["site"]["scheduler_options"] == "#SBATCH -A neutrinoGPU\n#SBATCH -q debug\n#SBATCH -n 4"
+        assert saved_data["site"]["launcher_options"] == 'container "sbn"'
+        assert saved_data["workflow"]["extra"]["nested_dict"]["test_key"] == "some\nnewline"
+        assert saved_data["workflow"]["extra"]["nested_dict"]["another"] == "quote\""
+        assert saved_data["workflow"]["extra"]["nested_list"][0] == "item 1\nwith newline"
 
 
 def test_cli_science_mismatch_prevents_run(tmp_path_extended, mock_wfe):

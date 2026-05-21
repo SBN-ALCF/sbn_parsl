@@ -172,38 +172,33 @@ class Config:
         """Save the current configuration to a TOML file."""
         data = self.to_dict()
 
+        def _serialize(val) -> str:
+            if isinstance(val, str):
+                return json.dumps(val)
+            elif isinstance(val, bool):
+                return str(val).lower()
+            elif isinstance(val, dict):
+                parts = []
+                for dk, dv in val.items():
+                    if dv is not None:
+                        parts.append(f"{dk} = {_serialize(dv)}")
+                return f"{{ {', '.join(parts)} }}"
+            elif isinstance(val, (list, tuple)):
+                parts = []
+                for item in val:
+                    if item is not None:
+                        parts.append(_serialize(item))
+                return f"[{', '.join(parts)}]"
+            else:
+                return str(val)
+
         lines = []
         for section, content in sorted(data.items()):
             lines.append(f"[{section}]")
             for k, v in sorted(content.items()):
-                if isinstance(v, str):
-                    lines.append(f'{k} = "{v}"')
-                elif isinstance(v, bool):
-                    lines.append(f"{k} = {str(v).lower()}")
-                elif v is None:
+                if v is None:
                     continue
-                elif isinstance(v, dict):
-                    items = []
-                    for dk, dv in v.items():
-                        if isinstance(dv, str):
-                            items.append(f'{dk} = "{dv}"')
-                        elif isinstance(dv, bool):
-                            items.append(f"{dk} = {str(dv).lower()}")
-                        else:
-                            items.append(f"{dk} = {dv}")
-                    lines.append(f"{k} = {{ {', '.join(items)} }}")
-                elif isinstance(v, list):
-                    items = []
-                    for item in v:
-                        if isinstance(item, str):
-                            items.append(f'"{item}"')
-                        elif isinstance(item, bool):
-                            items.append(str(item).lower())
-                        else:
-                            items.append(str(item))
-                    lines.append(f"{k} = [{', '.join(items)}]")
-                else:
-                    lines.append(f"{k} = {v}")
+                lines.append(f"{k} = {_serialize(v)}")
             lines.append("")
 
         with open(path, "w") as f:
