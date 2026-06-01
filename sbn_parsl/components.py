@@ -461,20 +461,26 @@ def output_filepath_icarus_data(context: RunContext) -> pathlib.Path:
     """Pick an output file name based on input filename."""
     nskip = 0
     try:
-        nskip = context.lar_opts['nskip']
+        nskip = context.lar_args['nskip']
     except KeyError:
         pass
+    first_file_name = context.input_files[0].name
     if context.stage.stage_type != DefaultStageTypes.CAF:
+        # add, e.g., "-030-" to filename if we are only processing part of it
+        skip_str = f'{nskip:03d}' if context.lar_args['nevts'] > 0 else ''
         # from string or posixpath input
-        output_filename = '-'.join([
-            str(stage.stage_type.name), f'{nskip:03d}', os.path.basename(first_file_name),
-        ])
+        output_filename = '-'.join(filter(None, [
+            str(context.stage.stage_type.name), skip_str, context.input_files[0].name,
+        ]))
+        # legacy fixes
+        output_filename = output_filename.replace('reco1', 'stage0')
+        output_filename = output_filename.replace('reco2', 'stage1')
     else:
         output_filename = os.path.splitext(os.path.basename(first_file_name))[0] + '.Blind.OKTOLOOK.flat.caf.root'
 
-    return context.out_dir / pathlib.Path(label, stage.stage_type.name, \
-            f'{stage.workflow_id // 1000:06d}', \
-            f'{stage.workflow_id // 100:06d}', output_filename)
+    return context.out_dir / pathlib.Path(context.label, context.stage.stage_type.name, \
+            f'{context.stage.workflow_id // 1000:06d}', \
+            f'{context.stage.workflow_id // 100:06d}', output_filename)
 
 def output_filepath_icarus_mc(context: RunContext) -> pathlib.Path:
     """Pick an output file name based on input filename (for overlay MC)."""
@@ -516,6 +522,10 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
             f'''echo "]" >> {fcl_name}''',
             f'''echo "physics.producers.generator.ShowerCopyType: \\"DIRECT\\"" >> {fcl_name}''',
         ])
+    elif context.stage.stage_type.name == 'pot':
+        fcl_cmd = '\n'.join([
+            f'''echo "physics.producers.bnbinfo.URL: \\"http://localhost:8000/ifbeam\\"" >> {fcl_name}''',
+        ])
     elif context.stage.stage_type == DefaultStageTypes.STAGE1:
         # find the first component in the output file path with "reco1" & replace with "larcv"
         larcv_dir = pathlib.PurePosixPath(*[p if p != 'stage1' else 'larcv' for p in context.output_file.parent.parts])
@@ -526,6 +536,8 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         fcl_cmd = '\n'.join([
             f'mkdir -p {larcv_dir_str}',
             fcl_cmd,
+            f'''echo "physics.analyzers.supera.out_filename: \\"{larcv_dir_str}/{larcv_filename.name}\\"" >> {fcl_name}''',
+            f'''echo "physics.analyzers.supera.unique_filename: false" >> {fcl_name}''',
             f'''echo "physics.analyzers.superaMC.out_filename: \\"{larcv_dir_str}/{larcv_filename.name}\\"" >> {fcl_name}''',
             f'''echo "physics.analyzers.superaMC.unique_filename: false" >> {fcl_name}'''
         ])
@@ -575,6 +587,26 @@ def build_larsoft_cmd_icarus_overlay_mc(context: RunContext) -> str:
     return build_larsoft_cmd(context)
 
 
+def build_larsoft_cmd_icarus_data(context: RunContext) -> str:
+    """Variation to save calib ntuple to stage1 directory for data"""
+    if context.stage.stage_type == DefaultStageTypes.STAGE1:
+        # make a calib_ntuple directory
+        calib_dir = pathlib.PurePosixPath(*[p if p != 'stage1' else 'calib_ntuple' for p in context.output_file.parent.parts])
+        calib_filename = calib_dir / f"hists_{context.input_files[0].name}"
+        lar_cmd = ' '.join([
+            build_larsoft_cmd(context),
+            f'-T {str(calib_filename)}'
+        ])
+        return '\n'.join([
+            f'mkdir -p {str(calib_dir)}',
+            lar_cmd
+        ])
+
+    # default case
+    return build_larsoft_cmd(context)
+
+
 mc_runfunc_icarus=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_icarus_overlay_mc, \
-                                    output_filename_func=output_filepath_icarus_mc, fcl_cmd_func=build_modify_fcl_cmd_icarus)
-data_runfunc_icarus=functools.partial(larsoft_runfunc, output_filename_func=output_filepath_icarus_data)
+        output_filename_func=output_filepath_icarus_mc, fcl_cmd_func=build_modify_fcl_cmd_icarus)
+data_runfunc_icarus=functools.partial(larsoft_runfunc, lar_cmd_func=build_larsoft_cmd_icarus_data, \
+        output_filename_func=output_filepath_icarus_data, fcl_cmd_func=build_modify_fcl_cmd_icarus)
