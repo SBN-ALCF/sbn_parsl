@@ -325,3 +325,26 @@ def test_worker_init_explicit_disable(monkeypatch):
     assert worker_init_str == "export TMPDIR=/tmp/"
 
 
+def test_initialize_logging_config(monkeypatch):
+    from sbn_parsl.parsl_setup import create_parsl_config
+
+    # Mock address_by_interface to avoid network resolution errors on non-HPC systems
+    monkeypatch.setattr("sbn_parsl.parsl_setup.address_by_interface", lambda iface: "127.0.0.1")
+
+    cfg = Config(
+        site=SiteConfig(
+            name="local",
+            cpus_per_node=2,
+            cores_per_worker=1,
+        ),
+        job=JobConfig(allocation="test", queue="test", initialize_logging=True),
+        larsoft=None,
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+
+    parsl_config = create_parsl_config(cfg, local=True)
+    assert parsl_config.initialize_logging is True
+
+
+

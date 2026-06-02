@@ -172,7 +172,7 @@ def create_executor_by_hostname(cfg: Config, provider):
 
     init_cmd = ""
     # copy larsoft tarballs to the node
-    if cfg.larsoft.tarballs:
+    if cfg.larsoft and cfg.larsoft.tarballs:
         tar_cmds = []
         for pkg_name, pkg_path in cfg.larsoft.tarballs.items():
             pkg_path = pathlib.Path(pkg_path)
@@ -193,23 +193,26 @@ def create_executor_by_hostname(cfg: Config, provider):
     run_dir = cfg.run.runinfo or cfg.run.output
     working_dir = str(pathlib.Path(run_dir) / "runinfo" / "cmd")
 
-    return HighThroughputExecutor(
-        label="htex",
-        heartbeat_period=15,
-        heartbeat_threshold=120,
-        worker_debug=True,
-        launch_cmd="\n".join([init_cmd, DEFAULT_LAUNCH_CMD]),
-        max_workers_per_node=max_workers_per_node,
-        cores_per_worker=cfg.site.cores_per_worker,
-        available_accelerators=cfg.site.available_accelerators,
-        address=address_by_interface("hsn0"),
-        address_probe_timeout=120,
-        cpu_affinity=cpu_affinity,
-        prefetch_capacity=0,
-        provider=provider,
-        block_error_handler=False,
-        working_dir=working_dir,
-    )
+    exec_kwargs = {
+        "label": "htex",
+        "heartbeat_period": 15,
+        "heartbeat_threshold": 120,
+        "worker_debug": True,
+        "launch_cmd": "\n".join([init_cmd, DEFAULT_LAUNCH_CMD]),
+        "max_workers_per_node": max_workers_per_node,
+        "cores_per_worker": cfg.site.cores_per_worker,
+        "address": address_by_interface("hsn0"),
+        "address_probe_timeout": 120,
+        "cpu_affinity": cpu_affinity,
+        "prefetch_capacity": 0,
+        "provider": provider,
+        "block_error_handler": False,
+        "working_dir": working_dir,
+    }
+    if cfg.site.available_accelerators is not None:
+        exec_kwargs["available_accelerators"] = cfg.site.available_accelerators
+
+    return HighThroughputExecutor(**exec_kwargs)
 
 
 def create_parsl_config(cfg: Config, local: bool = False):
@@ -236,7 +239,7 @@ def create_parsl_config(cfg: Config, local: bool = False):
         run_dir=run_dir_path,
         strategy=cfg.job.strategy,
         retries=cfg.job.retries,
-        initialize_logging=False,
+        initialize_logging=cfg.job.initialize_logging,
     )
 
     return config

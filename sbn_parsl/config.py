@@ -66,6 +66,7 @@ class JobConfig:
     strategy: str = "none"
     daos_pool: Optional[str] = None
     daos_cont: Optional[str] = None
+    initialize_logging: bool = False
 
 
 @dataclass
