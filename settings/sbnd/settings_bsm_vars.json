@@ -1,0 +1,90 @@
+{
+    "run": {
+        "output": "/lus/flare/projects/neutrinoGPU/twester/pds_detvar_test_comp",
+        "fclpath": "",
+        "nsubruns": 5000,
+        "max_futures": 50000,
+        "seed": 1234
+    },
+    "workflow": {
+        "subruns_per_caf": 1
+    },
+    "larsoft": {
+        "container": "/tmp/slf7.sif",
+        "software": "sbndcode",
+        "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft", 
+        "version": "v10_14_02_03",
+        "qual": "e26:prof",
+        "nevts": 10,
+        "experiment": "sbnd",
+        "lar_args" : "",
+        "env_file": "/lus/grand/projects/neutrinoGPU/software/sbndcode-v10_14_02_03.env",
+        "simulation_inputs": "/lus/grand/projects/neutrinoGPU/simulation_inputs"
+    },
+    "queue": {
+        "queue": "prod",
+        "walltime": "2:00:00",
+        "nodes_per_block": 320,
+        "cores_per_worker": 1,
+        "min_blocks": 0,
+        "max_blocks": 1,
+        "init_blocks": 0,
+        "cpus_per_node": 32,
+        "cores_per_worker": 1,
+        "strategy": "simple",
+        "allocation": "neutrinoGPU::SBND_BSM_Spring2026",
+        "retries": 0,
+        "init_cmd": "cp /lus/grand/projects/neutrinoGPU/software/sbnd_data-01.42.00-noarch.tar.bz2 /tmp && tar -xf /tmp/sbnd_data-01.42.00-noarch.tar.bz2 -C /tmp && cp /lus/grand/projects/neutrinoGPU/software/containers/slf7.sif /tmp",
+        "initialize_logging": true
+    },
+    "fcls": {
+        "cv": {
+            "gen": "prodgenie_corsika_proton_rockbox_sbnd.fcl",
+            "g4": "standard_g4_sbnd.fcl",
+            "detsim": "standard_detsim_sbnd.fcl",
+            "reco1": "standard_reco1_sbnd.fcl",
+            "reco2": "standard_reco2_sbnd.fcl",
+            "caf": "cafmakerjob_sbnd_sce_and_fluxwgt_and_g4rw.fcl"
+        },
+        "HNL_nuee_m35MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nuee_m_35_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nuee_m50MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nuee_m_50_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nuee_m75MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nuee_m_75_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nuee_m100MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nuee_m_100_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nuee_m125MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nuee_m_125_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nuee_m140MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nuee_m_140_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nupi0_m140MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nupi0_m_140_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nupi0_m165MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nupi0_m_165_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nupi0_m190MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nupi0_m_190_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nupi0_m215MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nupi0_m_215_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nupi0_m240MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nupi0_m_240_Um4_1p00e7_TPC_sbnd.fcl"
+        },
+        "HNL_nupi0_m260MeV": {
+            "gen": "prodoverlay_corsika_MeVPrtl_hnl_nupi0_m_260_Um4_1p00e7_TPC_sbnd.fcl"
+        }
+    },
+    "metadata": {
+        "exe": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh",
+        "mdprojectversion": "v10_14_02_03"
+    }
+}

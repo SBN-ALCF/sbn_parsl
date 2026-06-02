@@ -1,6 +1,6 @@
 [site]
 name = "aurora"
-cpus_per_node = 104
+cpus_per_node = 102
 cores_per_worker = 1
 scheduler_options = "#PBS -l filesystems=home:flare"
 launcher_options = "-n 1 --ppn 1 --depth=104 --cpu-bind depth"
@@ -9,7 +9,6 @@ available_accelerators = 102
 pbs_filesystems = "home:flare"
 worker_init = [
     "export TMPDIR=/tmp/",
-    "module load frameworks"
 ]
 
 [app.larsoft]
@@ -19,8 +18,3 @@ simulation_inputs = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
 
 [app.larsoft.metadata]
 exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
-
-[app.spine]
-model_path = "/lus/flare/projects/neutrinoGPU/models/spine/model.pt"
-batch_size = 32
-device = "cuda"

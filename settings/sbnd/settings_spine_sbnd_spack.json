@@ -1,0 +1,42 @@
+{
+    "run": {
+        "output": "your_output_directory",
+        "nsubruns": 1,
+        "max_futures": 20000,
+        "files_per_subrun": 1,
+        "seed": 1234
+    },
+    "workflow": {
+        "larcv_path": "/lus/eagle/projects/neutrinoGPU/sbnd/mc/larcv/g4bnb_rhc_larcv_v3_3",
+        "filelist": ""
+    },
+    "spine": {
+        "exe": "/lus/grand/projects/neutrinoGPU/software/spine/bin/run.py",
+        "container": "/lus/grand/projects/neutrinoGPU/software/containers/larcv2_ub2204-cuda121-torch251-larndsim-2025-03-20.sif",
+        "opt0finder": "/lus/grand/projects/neutrinoGPU/software/OpT0Finder",
+        "config": "/lus/grand/projects/neutrinoGPU/software/spine_prod/config/sbnd/latest.cfg",
+        "litify": "",
+        "weights": "/lus/grand/projects/neutrinoGPU/spine_weights/snapshot-6499.ckpt",
+        "version": "v0.7.7"
+    },
+    "queue": {
+        "queue": "debug",
+        "walltime": "01:00:00",
+        "select_options": "ngpus=32",
+        "nodes_per_block": 1,
+        "cores_per_worker": 8,
+        "cpus_per_node": 32,
+        "cores_per_worker": 8,
+        "init_blocks": 1,
+        "max_blocks": 1,
+        "allocation": "neutrinoGPU::debug",
+        "retries": 3,
+        "init_cmd": "source /lus/grand/projects/neutrinoGPU/software/spack_Jan25/spack/share/spack/setup-env.sh && spack env activate spine && spack load py-torch-scatter py-minkowskiengine py-torch-cluster py-psutil py-h5py py-torch-geometric larcv2"
+    },
+    "fcls": {},
+    "metadata": {
+        "production.name": "PolarisTest",
+        "production.type": "polaris",
+        "sbnd_project.name": "mc_MCP2025B_5e18_prodcorsika_proton_intime_sbnd_CV_spine"
+    }
+}

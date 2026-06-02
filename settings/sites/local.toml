@@ -8,16 +8,3 @@ cpu_affinity = "none"
 available_accelerators = 0
 pbs_filesystems = ""
 worker_init = []
-
-[app.larsoft]
-container_path = "/home/twester/containers/slf7.sif"
-larsoft_top = "/home/twester/scisoft/larsoft"
-simulation_inputs = ""
-
-[app.larsoft.metadata]
-exe = "/home/twester/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
-
-[app.spine]
-model_path = "/lus/flare/projects/neutrinoGPU/models/spine/model.pt"
-batch_size = 32
-device = "cuda"
