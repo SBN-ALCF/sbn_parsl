@@ -47,7 +47,7 @@ def fcl_future(
         fhicl=inputs[0],
         workdir=workdir,
         output=outputs[0],
-        input=inputs[1],
+        input=inputs[1] if len(inputs) > 1 else "",
         cmd=cmd,
         **larsoft_opts,
         pre_job_hook=pre_job_hook,

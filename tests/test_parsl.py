@@ -347,4 +347,42 @@ def test_initialize_logging_config(monkeypatch):
     assert parsl_config.initialize_logging is True
 
 
+def test_fcl_future_formatting():
+    from sbn_parsl.components import fcl_future
+
+    # fcl_future is a Parsl bash_app. To test the underlying formatting function
+    # wrapped by Parsl without loading a full Parsl DFK, we can call the original
+    # Python function directly using .func attribute of the Parsl app wrapper.
+    orig_func = fcl_future.func
+
+    template = "FHC={fhicl} OUT={output} IN={input} CMD={cmd} TOP={larsoft_top}"
+
+    # 1. Test formatting with a single input file (e.g. generator stage)
+    res = orig_func(
+        workdir="/tmp",
+        stdout="stdout",
+        stderr="stderr",
+        template=template,
+        cmd="lar",
+        larsoft_opts={"larsoft_top": "/soft"},
+        inputs=["my_fcl.fcl"],
+        outputs=["my_out.root"]
+    )
+    assert res == "FHC=my_fcl.fcl OUT=my_out.root IN= CMD=lar TOP=/soft"
+
+    # 2. Test formatting with two input files (e.g. typical stage)
+    res_two = orig_func(
+        workdir="/tmp",
+        stdout="stdout",
+        stderr="stderr",
+        template=template,
+        cmd="lar",
+        larsoft_opts={"larsoft_top": "/soft"},
+        inputs=["my_fcl.fcl", "my_in.root"],
+        outputs=["my_out.root"]
+    )
+    assert res_two == "FHC=my_fcl.fcl OUT=my_out.root IN=my_in.root CMD=lar TOP=/soft"
+
+
+
 
