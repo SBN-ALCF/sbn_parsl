@@ -441,7 +441,60 @@ def test_worker_init_monitor_cmd():
 
     worker_init_str = _worker_init(cfg, mps=False)
     assert 'pgrep -f "lar_mon.sh"' in worker_init_str
-    assert '(/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl &)' in worker_init_str
+    assert '/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl &' in worker_init_str
+
+
+def test_entry_point_file_cache_missing_error(temp_db_dir, capsys):
+    from sbn_parsl.app import entry_point
+
+    settings_file = pathlib.Path(temp_db_dir) / "settings.toml"
+    with open(settings_file, "w") as f:
+        f.write("""
+[larsoft]
+experiment = "sbnd"
+version = "v1"
+qual = "e26"
+
+[workflow.fcls]
+gen = "gen.fcl"
+""")
+
+    runinfo_dir = pathlib.Path(temp_db_dir) / "runinfo"
+    runinfo_dir.mkdir(parents=True, exist_ok=True)
+    config_file = runinfo_dir / "config.toml"
+
+    cfg = Config(
+        site=SiteConfig(name="local", cpus_per_node=2, cores_per_worker=1),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=LArSoftConfig(experiment="sbnd", version="v1", qual="e26"),
+        workflow=WorkflowConfig(fcls={"gen": "gen.fcl"}),
+        run=RunConfig(nsubruns=1, output=str(temp_db_dir), runinfo=str(temp_db_dir))
+    )
+    cfg.save(config_file)
+
+    class DummyWorkflowExecutor:
+        def __init__(self, cfg):
+            self.cfg = cfg
+        def execute(self, cycle, dry_run=False):
+            pass
+
+    argv = ["sbn_parsl", str(settings_file), "-o", str(temp_db_dir), "-r", str(temp_db_dir)]
+
+    entry_point(argv, DummyWorkflowExecutor)
+
+    # Load config via Config.load to accurately compute the expected science hash with site defaults
+    loaded_cfg = Config.load(
+        settings_file,
+        site_name="local",
+        run_overrides={"output": str(temp_db_dir)}
+    )
+    expected_hash = loaded_cfg.get_science_hash()
+
+    captured = capsys.readouterr()
+    assert "FATAL: The configuration file" in captured.out
+    assert "expected file cache database" in captured.out
+    assert f"file_cache_{expected_hash}.db" in captured.out
+
 
 
 

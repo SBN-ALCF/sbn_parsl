@@ -151,13 +151,32 @@ def entry_point(argv, wfe_class):
     if config_file.exists() and not args.force and not args.dry_run:
         # Check compatibility
         existing_cfg = Config.load(config_file, site_name=cfg.site.name)
-        if cfg.get_science_hash() != existing_cfg.get_science_hash():
+        science_hash = cfg.get_science_hash()
+        if science_hash != existing_cfg.get_science_hash():
             print(
                 f"FATAL: Science identity mismatch in output directory {cfg.run.output}"
             )
-            print(f"Current Hash:  {cfg.get_science_hash()}")
+            print(f"Current Hash:  {science_hash}")
             print(f"Existing Hash: {existing_cfg.get_science_hash()}")
             print("To resume, use the same LArSoft version and FCLs, or use --force.")
+            return
+
+        # Check if the expected file cache database exists
+        db_file = runinfo_dir / "cmd" / f"file_cache_{science_hash}.db"
+        if not db_file.exists():
+            print(
+                f"FATAL: The configuration file {config_file} was found, "
+                f"but the expected file cache database {db_file} is missing."
+            )
+            print(
+                "If you have recently upgraded the sbn_parsl package, the science hash "
+                "format may have changed, causing a mismatch with the old database filename.\n\n"
+                "To resolve this, you can:\n"
+                "  1. Clear out the old config by deleting or renaming the runinfo/ directory.\n"
+                "  2. Run with --force to overwrite and start a new cache.\n"
+                "  3. Manually rename the old file_cache_*.db file in runinfo/cmd/ to:\n"
+                f"     {db_file.name}"
+            )
             return
 
     # Save config for future resumes
