@@ -7,7 +7,6 @@ launcher_options = ""
 cpu_affinity = "none"
 available_accelerators = 0
 pbs_filesystems = ""
-worker_venv_name = "sbn"
 worker_init = []
 
 [app.larsoft]

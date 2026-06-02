@@ -281,7 +281,6 @@ def test_worker_init_fallback(monkeypatch):
             name="polaris",
             cpus_per_node=32,
             cores_per_worker=1,
-            worker_venv_name="sbn_test",
             worker_init=[
                 "export TMPDIR=/tmp/"
             ]
@@ -293,8 +292,9 @@ def test_worker_init_fallback(monkeypatch):
     )
 
     worker_init_str = _worker_init(cfg, mps=False)
-    # Should fall back to the configured/default worker_venv_name
-    assert worker_init_str.startswith("source ~/.venv/sbn_test/bin/activate")
+    # Should not prepend any activation since no env is active/configured
+    assert "bin/activate" not in worker_init_str
+    assert worker_init_str == "export TMPDIR=/tmp/"
 
 
 def test_worker_init_explicit_disable(monkeypatch):

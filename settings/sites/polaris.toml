@@ -7,7 +7,6 @@ launcher_options = "--depth=64 --ppn 1"
 cpu_affinity = "alternating"
 available_accelerators = 32
 pbs_filesystems = "home:grand:eagle"
-worker_venv_name = "sbn"
 worker_init = [
     "export TMPDIR=/tmp/"
 ]

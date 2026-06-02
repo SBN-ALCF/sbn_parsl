@@ -54,14 +54,11 @@ def _worker_init(cfg: Config, mps: bool = True):
     # 1. Determine environment path to activate
     # Option A: explicitly configured virtual_env
     # Option B: automatically detected active environment
-    # Option C: fallback to ~/.venv/{worker_venv_name}
     env_path = None
     if cfg.site.virtual_env is not None:
         env_path = cfg.site.virtual_env or None
     else:
         env_path = detect_active_env()
-        if not env_path and cfg.site.worker_venv_name:
-            env_path = f"~/.venv/{cfg.site.worker_venv_name}"
 
     # Prepend env activation first
     if env_path:

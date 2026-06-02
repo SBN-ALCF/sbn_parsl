@@ -27,13 +27,31 @@ uv run ... # Use uv run to execute commands in the environment
 uv pip install -e .
 ```
 
+### Troubleshooting: "no module named sqlite3"
+
+If you receive a `ModuleNotFoundError: No module named 'sqlite3'` error during execution, this means your active Python interpreter lacks SQLite support.
+
+*   **Using `uv`-managed Python (Recommended)**: Force `uv` to install a clean standalone Python package and recreate the virtual environment:
+    ```bash
+    uv python install 3.12 --reinstall
+    uv python pin 3.12
+    rm -rf .venv
+    uv venv
+    uv sync
+    ```
+*   **Using System Python**: Ensure SQLite development libraries are installed on your host system:
+    *   *Debian/Ubuntu*: `sudo apt install libsqlite3-dev`
+    *   *RedHat/Rocky Linux*: `sudo dnf install sqlite-devel`
+    And then reinstall Python so it compiles against the SQLite dev headers.
+
+
 ## Configuration System
 
 The configuration system is split into two parts: **Site Settings** and **Workflow Settings**.
 
 ### Site Settings
 Located in `settings/sites/`, these files define machine-specific and environment-specific parameters.
-- **`[site]`**: Hardware parameters like `cpus_per_node`, `scheduler_options`, and `worker_venv_name`.
+- **`[site]`**: Hardware parameters like `cpus_per_node`, `scheduler_options`, and the optional `virtual_env` path (which defaults to auto-detecting your active virtual or conda environment on the submit host).
 - **`[larsoft]`**: Software environment defaults like `container_path`, `larsoft_top`, and `metadata_exe`.
 
 ### Workflow Settings

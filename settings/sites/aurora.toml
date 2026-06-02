@@ -7,7 +7,6 @@ launcher_options = "-n 1 --ppn 1 --depth=104 --cpu-bind depth"
 cpu_affinity = "none"
 available_accelerators = 102
 pbs_filesystems = "home:flare"
-worker_venv_name = "sbn"
 worker_init = [
     "export TMPDIR=/tmp/",
     "module load frameworks"

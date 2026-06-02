@@ -46,7 +46,6 @@ class SiteConfig:
     available_accelerators: Any = None
     pbs_filesystems: str = "home"
     worker_init: Any = ""
-    worker_venv_name: str = "sbn"
     virtual_env: Optional[str] = None
 
 
