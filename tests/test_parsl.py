@@ -384,5 +384,29 @@ def test_fcl_future_formatting():
     assert res_two == "FHC=my_fcl.fcl OUT=my_out.root IN=my_in.root CMD=lar TOP=/soft"
 
 
+def test_env_file_config():
+    cfg = Config(
+        site=SiteConfig(
+            name="local",
+            cpus_per_node=2,
+            cores_per_worker=1,
+        ),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=LArSoftConfig(
+            experiment="sbnd",
+            version="v1",
+            qual="e26",
+            env_file="/path/to/my_env_file.sh",
+            container_path="",
+            larsoft_top="",
+        ),
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+
+    assert cfg.larsoft.env_file == "/path/to/my_env_file.sh"
+
+
+
 
 

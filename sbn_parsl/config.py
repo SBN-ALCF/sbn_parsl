@@ -99,6 +99,7 @@ class LArSoftConfig:
     flux_type: str = "dk2nu"
     overlays: List[str] = field(default_factory=list)
     tarballs: Dict[str, str] = field(default_factory=dict)
+    env_file: str = ""
     container_path: str = ""
     larsoft_top: str = ""
     simulation_inputs: str = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
