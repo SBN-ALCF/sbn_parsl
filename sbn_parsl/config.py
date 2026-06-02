@@ -9,6 +9,7 @@ import hashlib
 
 class AppConfigNamespace:
     """Dynamically wraps configuration dictionaries into dot-accessible attributes."""
+
     def __init__(self, data: Dict[str, Any]):
         for k, v in data.items():
             if isinstance(v, dict):
@@ -46,8 +47,6 @@ class SiteConfig:
     pbs_filesystems: str = "home"
     worker_init: Any = ""
     worker_venv_name: str = "sbn"
-
-
 
 
 @dataclass
@@ -139,8 +138,6 @@ class WorkflowConfig:
         return cls(**kwargs, extra=extra)
 
 
-
-
 @dataclass
 class RunConfig:
     """
@@ -167,9 +164,9 @@ class Config:
 
     site: SiteConfig
     job: JobConfig
-    larsoft: LArSoftConfig
     workflow: WorkflowConfig
     run: RunConfig
+    larsoft: Optional[LArSoftConfig] = None
 
     def get_science_hash(self) -> str:
         """
@@ -179,18 +176,25 @@ class Config:
         # We include larsoft, workflow, and metadata
         # Exclude metadata from larsoft dict to preserve stable science hash identity representation
         identity = {
-            "larsoft": {k: v for k, v in self.larsoft.__dict__.items() if k != "metadata"},
             "workflow": self.workflow.__dict__,
-            "metadata": self.larsoft.metadata.__dict__,
         }
 
         # Add active dynamic apps
         active_apps = getattr(self, "_active_dynamic_apps", [])
         if active_apps:
-            identity["apps"] = {
-                app_name: getattr(self, app_name).to_dict()
-                for app_name in sorted(active_apps)
+            apps_identity = {}
+            for app_name in sorted(active_apps):
+                if app_name == "larsoft":
+                    continue
+                apps_identity[app_name] = getattr(self, app_name).to_dict()
+            if apps_identity:
+                identity["apps"] = apps_identity
+
+        if self.larsoft is not None:
+            identity["larsoft"] = {
+                k: v for k, v in self.larsoft.__dict__.items() if k != "metadata"
             }
+            identity["metadata"] = self.larsoft.metadata.__dict__
 
         # Convert to a stable JSON string for hashing
         def _stable_repr(obj):
@@ -230,11 +234,19 @@ class Config:
                 return str(val)
 
         lines = []
-        sections_to_write = ["site", "job", "larsoft", "larsoft.metadata", "workflow", "workflow.fcls", "run"]
+        sections_to_write = [
+            "site",
+            "job",
+            "larsoft",
+            "larsoft.metadata",
+            "workflow",
+            "workflow.fcls",
+            "run",
+        ]
         active_apps = getattr(self, "_active_dynamic_apps", [])
         for app_name in sorted(active_apps):
             sections_to_write.append(f"app.{app_name}")
-        
+
         for sec in sections_to_write:
             sec_parts = sec.split(".")
             sec_data = data
@@ -243,10 +255,10 @@ class Config:
                     sec_data = sec_data.get(part, None)
                 else:
                     sec_data = None
-            
+
             if not sec_data:
                 continue
-                
+
             lines.append(f"[{sec}]")
             for k, v in sorted(sec_data.items()):
                 if v is None:
@@ -289,20 +301,29 @@ class Config:
         with open(site_path, "rb") as f:
             site_data = tomllib.load(f)
 
-        # Merge [site] and [larsoft] sections from site config
-        # We require structured [site] and/or [larsoft] sections
-        if "site" not in site_data and "larsoft" not in site_data:
+        # Merge [site] and [app.larsoft] sections from site config
+        # We require structured [site] and/or [app.larsoft] sections
+        has_site = "site" in site_data
+        has_app_larsoft = (
+            "app" in site_data
+            and isinstance(site_data["app"], dict)
+            and "larsoft" in site_data["app"]
+        )
+        if not has_site and not has_app_larsoft:
             raise ValueError(
-                f"Site configuration file '{site_path.name}' is missing required '[site]' and '[larsoft]' structured headers."
+                f"Site configuration file '{site_path.name}' is missing required '[site]' and '[app.larsoft]' structured headers."
             )
 
         merged_site_data = {}
         merged_site_data.update(site_data.get("site", {}))
-        merged_site_data.update(site_data.get("larsoft", {}))
+        if has_app_larsoft:
+            merged_site_data.update(site_data["app"]["larsoft"])
 
         # Only pass valid fields to SiteConfig
         site_fields = {f.name for f in SiteConfig.__dataclass_fields__.values()}
-        filtered_site_data = {k: v for k, v in merged_site_data.items() if k in site_fields}
+        filtered_site_data = {
+            k: v for k, v in merged_site_data.items() if k in site_fields
+        }
         site_cfg = SiteConfig(**filtered_site_data)
 
         # 3. Load workflow TOML
@@ -314,33 +335,40 @@ class Config:
                 "Top-level [fcl] or [fcls] blocks are no longer supported. Please use the nested [workflow.fcls] block."
             )
 
-        # Get defaults from site config's [larsoft] section
-        site_larsoft = site_data.get("larsoft", {}) if "larsoft" in site_data else site_data
+        # Extract larsoft configurations from [app.larsoft]
+        site_app_section = site_data.get("app", {})
+        wf_app_section = wf_data.get("app", {})
 
-        # Merge site-specific larsoft defaults with workflow's larsoft config
-        larsoft_data = {}
-        for key in ["container_path", "larsoft_top", "simulation_inputs"]:
-            if key in site_larsoft:
-                larsoft_data[key] = site_larsoft[key]
+        larsoft_cfg = None
+        if "larsoft" in wf_app_section and isinstance(wf_app_section["larsoft"], dict):
+            site_larsoft = site_app_section.get("larsoft", {})
+            wf_larsoft = wf_app_section.get("larsoft", {})
 
-        # Extract nested metadata defaults and overrides
-        site_metadata = site_larsoft.get("metadata", {})
-        wf_larsoft = wf_data.get("larsoft", {})
-        wf_metadata = wf_larsoft.get("metadata", {})
+            larsoft_data = {}
+            for key in ["container_path", "larsoft_top", "simulation_inputs"]:
+                if key in site_larsoft:
+                    larsoft_data[key] = site_larsoft[key]
 
-        merged_metadata = {}
-        # Apply site-level metadata defaults
-        merged_metadata.update(site_metadata)
-        # Apply workflow-level metadata overrides
-        merged_metadata.update(wf_metadata)
+            # Extract nested metadata defaults and overrides
+            site_metadata = site_larsoft.get("metadata", {})
+            wf_metadata = wf_larsoft.get("metadata", {})
 
-        metadata_cfg = MetadataConfig(**merged_metadata)
+            merged_metadata = {}
+            # Apply site-level metadata defaults
+            merged_metadata.update(site_metadata)
+            # Apply workflow-level overrides
+            merged_metadata.update(wf_metadata)
 
-        # Now update with whatever is in workflow larsoft config
-        larsoft_data.update(wf_larsoft)
-        larsoft_data["metadata"] = metadata_cfg
+            metadata_cfg = MetadataConfig(**merged_metadata)
 
-        larsoft_cfg = LArSoftConfig(**larsoft_data)
+            # Now update with whatever is in workflow larsoft config
+            filtered_wf_larsoft = {
+                k: v for k, v in wf_larsoft.items() if k != "metadata"
+            }
+            larsoft_data.update(filtered_wf_larsoft)
+            larsoft_data["metadata"] = metadata_cfg
+
+            larsoft_cfg = LArSoftConfig(**larsoft_data)
 
         # Load workflow config
         wf_raw_data = wf_data.get("workflow", {})
@@ -363,19 +391,24 @@ class Config:
         cfg = cls(
             site=site_cfg,
             job=job_cfg,
-            larsoft=larsoft_cfg,
             workflow=workflow_cfg,
             run=run_cfg,
         )
 
         # 5. Dynamic App Config parsing and merging
-        wf_app_section = wf_data.get("app", {})
-        site_app_section = site_data.get("app", {})
         active_apps = []
+        if larsoft_cfg is not None:
+            setattr(cfg, "larsoft", larsoft_cfg)
+            active_apps.append("larsoft")
+
         for app_name, wf_app_data in wf_app_section.items():
+            if app_name == "larsoft":
+                continue
             if isinstance(wf_app_data, dict):
                 merged_app_data = {}
-                if app_name in site_app_section and isinstance(site_app_section[app_name], dict):
+                if app_name in site_app_section and isinstance(
+                    site_app_section[app_name], dict
+                ):
                     merged_app_data.update(site_app_section[app_name])
                 merged_app_data.update(wf_app_data)
 
@@ -404,7 +437,11 @@ class Config:
                         res[k] = _asdict(v)
                 return res
             elif hasattr(obj, "__dict__"):
-                return {k: _asdict(v) for k, v in obj.__dict__.items() if not k.startswith("_")}
+                return {
+                    k: _asdict(v)
+                    for k, v in obj.__dict__.items()
+                    if not k.startswith("_")
+                }
             elif isinstance(obj, (list, tuple)):
                 return [_asdict(i) for i in obj]
             elif isinstance(obj, dict):
@@ -413,6 +450,8 @@ class Config:
                 return obj
 
         raw_dict = _asdict(self)
+        if "larsoft" in raw_dict and raw_dict["larsoft"] is None:
+            del raw_dict["larsoft"]
         active_apps = getattr(self, "_active_dynamic_apps", [])
         if active_apps:
             raw_dict["app"] = {}

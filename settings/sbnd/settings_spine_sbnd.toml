@@ -13,4 +13,4 @@ retries = 3
 
 [workflow.fcls]
 
-[larsoft.metadata]
+[app.larsoft.metadata]

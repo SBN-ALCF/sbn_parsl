@@ -13,12 +13,12 @@ worker_init = [
     "source ~/.venv/sbn/bin/activate"
 ]
 
-[larsoft]
+[app.larsoft]
 container_path = "/lus/grand/projects/neutrinoGPU/software/containers/slf7.sif"
 larsoft_top = "/lus/grand/projects/neutrinoGPU/software/larsoft"
 simulation_inputs = "/lus/grand/projects/neutrinoGPU/simulation_inputs"
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 
 [app.spine]

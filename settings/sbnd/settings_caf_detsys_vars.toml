@@ -5,7 +5,7 @@ files_per_subrun = 10
 [workflow]
 subruns_per_caf = 10
 
-[larsoft]
+[app.larsoft]
 software = "sbndcode"
 version = "v10_06_00_10"
 qual = "e26:prof"
@@ -28,5 +28,5 @@ PMTLowEff = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sb
 0xSCE = { scrub = "scrub_wcls_detsim_reco1.fcl", detsim = "detsim_enable_zerospacecharge_sbnd.fcl" }
 2xSCE = { scrub = "scrub_wcls_detsim_reco1.fcl", detsim = "detsim_enable_doublespacecharge_sbnd.fcl" }
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 mdprojectversion = "v10_06_00_09"

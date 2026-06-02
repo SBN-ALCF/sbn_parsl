@@ -4,7 +4,7 @@ files_per_subrun = 1
 
 [workflow]
 
-[larsoft]
+[app.larsoft]
 software = "icaruscode"
 version = "10_06_00_01"
 nevts = -1

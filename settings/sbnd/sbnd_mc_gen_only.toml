@@ -5,7 +5,7 @@ nsubruns = 102400
 subruns_per_caf = 1
 full_keep_fraction = 0.05
 
-[larsoft]
+[app.larsoft]
 software = "sbndcode"
 version = "v10_14_02_04"
 qual = "e26:prof"
@@ -23,5 +23,5 @@ retries = 0
 [workflow.fcls]
 gen = "prodgenie_corsika_proton_rockbox0p1_sbnd.fcl"
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 mdprojectversion = "v10_14_02_04"

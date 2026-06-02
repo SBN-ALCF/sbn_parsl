@@ -4,7 +4,7 @@ files_per_subrun = 1
 
 [workflow]
 
-[larsoft]
+[app.larsoft]
 software = "sbndcode"
 version = "v10_06_00_04"
 qual = "e26:prof"
@@ -26,5 +26,5 @@ reco1 = "reco1_data_dnnroi.fcl"
 reco2 = "reco2_data.fcl"
 caf = "cafmakerjob_sbnd_data_sce_bnblight_dnnroi.fcl"
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 mdprojectversion = "v10_06_00_04"

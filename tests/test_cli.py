@@ -30,7 +30,7 @@ cpus_per_node = 32
 cores_per_worker = 1
 max_futures = 100
 
-[larsoft]
+[app.larsoft]
 container_path = "/path/to/container"
 larsoft_top = "/path/to/larsoft"
 """)
@@ -38,7 +38,7 @@ larsoft_top = "/path/to/larsoft"
     # Create a mock workflow config
     wf_toml = settings_dir / "sbnd_mc.toml"
     wf_toml.write_text("""
-[larsoft]
+[app.larsoft]
 experiment = "sbnd"
 version = "v1"
 qual = "e26:prof"
@@ -82,9 +82,14 @@ def test_config_load_and_save(tmp_path_extended):
 
         # Test save
         save_path = tmp_path_extended / "saved_config.toml"
-        cfg.site.scheduler_options = "#SBATCH -A neutrinoGPU\n#SBATCH -q debug\n#SBATCH -n 4"
+        cfg.site.scheduler_options = (
+            "#SBATCH -A neutrinoGPU\n#SBATCH -q debug\n#SBATCH -n 4"
+        )
         cfg.site.launcher_options = 'container "sbn"'
-        cfg.workflow.extra["nested_dict"] = {"test_key": "some\nnewline", "another": "quote\""}
+        cfg.workflow.extra["nested_dict"] = {
+            "test_key": "some\nnewline",
+            "another": 'quote"',
+        }
         cfg.workflow.extra["nested_list"] = ["item 1\nwith newline", "item 2"]
         cfg.save(save_path)
         assert save_path.exists()
@@ -92,12 +97,15 @@ def test_config_load_and_save(tmp_path_extended):
         # Load back (direct raw TOML check)
         with open(save_path, "rb") as f:
             saved_data = tomllib.load(f)
-        assert saved_data["larsoft"]["version"] == "v2"
-        assert saved_data["site"]["scheduler_options"] == "#SBATCH -A neutrinoGPU\n#SBATCH -q debug\n#SBATCH -n 4"
+        assert saved_data["app"]["larsoft"]["version"] == "v2"
+        assert (
+            saved_data["site"]["scheduler_options"]
+            == "#SBATCH -A neutrinoGPU\n#SBATCH -q debug\n#SBATCH -n 4"
+        )
         assert saved_data["site"]["launcher_options"] == 'container "sbn"'
         # The extra dictionary must be flattened directly under 'workflow'
         assert saved_data["workflow"]["nested_dict"]["test_key"] == "some\nnewline"
-        assert saved_data["workflow"]["nested_dict"]["another"] == "quote\""
+        assert saved_data["workflow"]["nested_dict"]["another"] == 'quote"'
         assert saved_data["workflow"]["nested_list"][0] == "item 1\nwith newline"
 
         # Load back via Config.load to verify identical science hash stability
@@ -196,7 +204,7 @@ def test_config_legacy_fcls_fails(tmp_path_extended):
     wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
     # Overwrite the mock TOML to use a legacy top-level [fcls] block
     wf_path.write_text("""
-[larsoft]
+[app.larsoft]
 experiment = "sbnd"
 version = "v1"
 qual = "e26:prof"
@@ -207,15 +215,19 @@ subruns_per_caf = 20
 [fcls]
 gen = "gen.fcl"
 """)
-    
+
     real_path = pathlib.Path
+
     def mock_path_side_effect(*args, **kwargs):
         if args and isinstance(args[0], str) and args[0].endswith("config.py"):
             return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
         return real_path(*args, **kwargs)
 
     with patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect):
-        with pytest.raises(ValueError, match="Top-level \\[fcl\\] or \\[fcls\\] blocks are no longer supported"):
+        with pytest.raises(
+            ValueError,
+            match="Top-level \\[fcl\\] or \\[fcls\\] blocks are no longer supported",
+        ):
             Config.load(
                 wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
             )
@@ -224,7 +236,7 @@ gen = "gen.fcl"
 def test_config_singular_fcl_fails(tmp_path_extended):
     wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
     wf_path.write_text("""
-[larsoft]
+[app.larsoft]
 experiment = "sbnd"
 version = "v1"
 qual = "e26:prof"
@@ -235,15 +247,19 @@ subruns_per_caf = 20
 [workflow.fcl]
 gen = "gen.fcl"
 """)
-    
+
     real_path = pathlib.Path
+
     def mock_path_side_effect(*args, **kwargs):
         if args and isinstance(args[0], str) and args[0].endswith("config.py"):
             return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
         return real_path(*args, **kwargs)
 
     with patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect):
-        with pytest.raises(ValueError, match="The singular \\[workflow.fcl\\] heading is no longer supported"):
+        with pytest.raises(
+            ValueError,
+            match="The singular \\[workflow.fcl\\] heading is no longer supported",
+        ):
             Config.load(
                 wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
             )
@@ -258,15 +274,19 @@ container_path = "/path/to/container"
 larsoft_top = "/path/to/larsoft"
 """)
     wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
-    
+
     real_path = pathlib.Path
+
     def mock_path_side_effect(*args, **kwargs):
         if args and isinstance(args[0], str) and args[0].endswith("config.py"):
             return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
         return real_path(*args, **kwargs)
 
     with patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect):
-        with pytest.raises(ValueError, match="missing required '\\[site\\]' and '\\[larsoft\\]' structured headers"):
+        with pytest.raises(
+            ValueError,
+            match="missing required '\\[site\\]' and '\\[app.larsoft\\]' structured headers",
+        ):
             Config.load(
                 wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
             )
@@ -275,7 +295,7 @@ larsoft_top = "/path/to/larsoft"
 def test_config_dynamic_app_loading(tmp_path_extended):
     wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
     site_path = tmp_path_extended / "settings" / "sites" / "polaris.toml"
-    
+
     # Overwrite site config to include site-level apps
     site_path.write_text("""
 [site]
@@ -284,7 +304,7 @@ cpus_per_node = 32
 cores_per_worker = 1
 max_futures = 100
 
-[larsoft]
+[app.larsoft]
 container_path = "/path/to/container"
 larsoft_top = "/path/to/larsoft"
 
@@ -299,7 +319,7 @@ some_key = "unused_value"
 
     # Overwrite workflow config to activate app.spine and override settings
     wf_path.write_text("""
-[larsoft]
+[app.larsoft]
 experiment = "sbnd"
 version = "v1"
 qual = "e26:prof"
@@ -316,6 +336,7 @@ device = "cpu"
 """)
 
     real_path = pathlib.Path
+
     def mock_path_side_effect(*args, **kwargs):
         if args and isinstance(args[0], str) and args[0].endswith("config.py"):
             return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
@@ -325,13 +346,13 @@ device = "cpu"
         cfg = Config.load(
             wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
         )
-        
+
         # Verify aggregation and overrides
-        assert cfg._active_dynamic_apps == ["spine"]
+        assert cfg._active_dynamic_apps == ["larsoft", "spine"]
         assert cfg.spine.model_path == "/path/to/site/spine.pt"
         assert cfg.spine.batch_size == 64
         assert cfg.spine.device == "cpu"
-        
+
         # Verify unused_app is NOT exposed
         assert not hasattr(cfg, "unused_app")
 
@@ -339,7 +360,7 @@ device = "cpu"
 def test_config_dynamic_app_hash(tmp_path_extended):
     wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
     site_path = tmp_path_extended / "settings" / "sites" / "polaris.toml"
-    
+
     # Setup site config
     site_path.write_text("""
 [site]
@@ -348,7 +369,7 @@ cpus_per_node = 32
 cores_per_worker = 1
 max_futures = 100
 
-[larsoft]
+[app.larsoft]
 container_path = "/path/to/container"
 larsoft_top = "/path/to/larsoft"
 
@@ -362,7 +383,7 @@ some_key = "unused_value"
 
     # Setup workflow config
     wf_path.write_text("""
-[larsoft]
+[app.larsoft]
 experiment = "sbnd"
 version = "v1"
 qual = "e26:prof"
@@ -378,6 +399,7 @@ batch_size = 64
 """)
 
     real_path = pathlib.Path
+
     def mock_path_side_effect(*args, **kwargs):
         if args and isinstance(args[0], str) and args[0].endswith("config.py"):
             return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
@@ -387,21 +409,21 @@ batch_size = 64
         cfg = Config.load(
             wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
         )
-        
+
         # Save base science hash
         h1 = cfg.get_science_hash()
-        
+
         # Modify active app parameter -> science hash MUST change
         cfg.spine.batch_size = 128
         h2 = cfg.get_science_hash()
         assert h1 != h2
-        
+
         # Reset and check that unused site app parameter change has NO effect
         cfg_ref = Config.load(
             wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
         )
         h_ref1 = cfg_ref.get_science_hash()
-        
+
         # Now change the unused app in the site TOML file, reload, and verify hash is identical
         site_path.write_text("""
 [site]
@@ -410,7 +432,7 @@ cpus_per_node = 32
 cores_per_worker = 1
 max_futures = 100
 
-[larsoft]
+[app.larsoft]
 container_path = "/path/to/container"
 larsoft_top = "/path/to/larsoft"
 
@@ -431,7 +453,7 @@ some_key = "CHANGED_value"
 def test_config_dynamic_app_save(tmp_path_extended):
     wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
     site_path = tmp_path_extended / "settings" / "sites" / "polaris.toml"
-    
+
     site_path.write_text("""
 [site]
 name = "polaris"
@@ -439,7 +461,7 @@ cpus_per_node = 32
 cores_per_worker = 1
 max_futures = 100
 
-[larsoft]
+[app.larsoft]
 container_path = "/path/to/container"
 larsoft_top = "/path/to/larsoft"
 
@@ -448,7 +470,7 @@ model_path = "/path/to/site/spine.pt"
 """)
 
     wf_path.write_text("""
-[larsoft]
+[app.larsoft]
 experiment = "sbnd"
 version = "v1"
 qual = "e26:prof"
@@ -464,6 +486,7 @@ batch_size = 64
 """)
 
     real_path = pathlib.Path
+
     def mock_path_side_effect(*args, **kwargs):
         if args and isinstance(args[0], str) and args[0].endswith("config.py"):
             return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
@@ -473,20 +496,20 @@ batch_size = 64
         cfg = Config.load(
             wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
         )
-        
+
         save_path = tmp_path_extended / "saved_app_config.toml"
         cfg.save(save_path)
-        
+
         assert save_path.exists()
-        
+
         with open(save_path, "rb") as f:
             saved_data = tomllib.load(f)
-            
+
         assert "app" in saved_data
         assert "spine" in saved_data["app"]
         assert saved_data["app"]["spine"]["model_path"] == "/path/to/site/spine.pt"
         assert saved_data["app"]["spine"]["batch_size"] == 64
-        
+
         # Load back via Config.load and check stability
         cfg_loaded = Config.load(
             save_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
@@ -494,4 +517,3 @@ batch_size = 64
         assert cfg_loaded.get_science_hash() == cfg.get_science_hash()
         assert cfg_loaded.spine.model_path == "/path/to/site/spine.pt"
         assert cfg_loaded.spine.batch_size == 64
-

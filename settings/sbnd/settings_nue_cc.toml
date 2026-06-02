@@ -5,7 +5,7 @@ nsubruns = 1
 subruns_per_caf = 40
 full_keep_fraction = 0.05
 
-[larsoft]
+[app.larsoft]
 software = "sbndcode"
 version = "v10_06_02"
 qual = "e26:prof"
@@ -28,5 +28,5 @@ reco1 = "standard_reco1_sbnd.fcl"
 reco2 = "standard_reco2_sbnd.fcl"
 caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl"
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 mdprojectversion = "v10_06_02"

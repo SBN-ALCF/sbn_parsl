@@ -6,7 +6,7 @@ files_per_subrun = 20
 subruns_per_caf = 20
 full_keep_fraction = 0.125
 
-[larsoft]
+[app.larsoft]
 software = "sbndcode"
 version = "v10_06_00_05"
 qual = "e26:prof"
@@ -26,5 +26,5 @@ cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rock
 0xSCE = { detsim = "detsim_enable_zerospacecharge_sbnd.fcl" }
 2xSCE = { detsim = "detsim_enable_doublespacecharge_sbnd.fcl" }
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 mdprojectversion = "v10_06_00_05"

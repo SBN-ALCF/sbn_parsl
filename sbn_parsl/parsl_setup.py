@@ -35,17 +35,31 @@ def _worker_init(cfg: Config, mps: bool = True):
         if isinstance(cfg.site.worker_init, list):
             cmds.extend(cfg.site.worker_init)
         else:
-            cmds.extend([line.strip() for line in cfg.site.worker_init.split("\n") if line.strip()])
+            cmds.extend(
+                [
+                    line.strip()
+                    for line in cfg.site.worker_init.split("\n")
+                    if line.strip()
+                ]
+            )
     else:
         venv_name = cfg.site.worker_venv_name
         hostname = socket.gethostname()
-        if cfg.site.name == "polaris" or "polaris" in hostname or hostname.startswith("x3"):
+        if (
+            cfg.site.name == "polaris"
+            or "polaris" in hostname
+            or hostname.startswith("x3")
+        ):
             # use conda
             cmds += [
                 "export TMPDIR=/tmp/",
                 f"source ~/.venv/{venv_name}/bin/activate",
             ]
-        elif cfg.site.name == "aurora" or "aurora" in hostname or hostname.startswith("x4"):
+        elif (
+            cfg.site.name == "aurora"
+            or "aurora" in hostname
+            or hostname.startswith("x4")
+        ):
             # use pip with frameworks
             cmds += [
                 "export TMPDIR=/tmp/",

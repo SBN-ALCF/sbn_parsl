@@ -12,12 +12,12 @@ worker_init = [
     "source ~/.venv/sbn/bin/activate"
 ]
 
-[larsoft]
+[app.larsoft]
 container_path = "/home/twester/containers/slf7.sif"
 larsoft_top = "/home/twester/scisoft/larsoft"
 simulation_inputs = ""
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 exe = "/home/twester/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"
 
 [app.spine]

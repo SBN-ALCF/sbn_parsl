@@ -5,7 +5,7 @@ nsubruns = 50
 subruns_per_caf = 1
 full_keep_fraction = 0.05
 
-[larsoft]
+[app.larsoft]
 software = "icaruscode"
 version = "10_04_04"
 nevts = 10

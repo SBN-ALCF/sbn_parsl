@@ -4,7 +4,7 @@ files_per_subrun = 1
 
 [workflow]
 
-[larsoft]
+[app.larsoft]
 software = "icaruscode"
 version = "v10_06_00_06p03"
 qual = "e26:prof"
@@ -30,5 +30,5 @@ stage0 = "stage0_run2_wcdnn_icarus_overlay.fcl"
 stage1 = "stage1_run2_larcv_icarus_overlay.fcl"
 caf = "cafmakerjob_icarus_detsim2d_systtools_and_fluxwgt_overlay.fcl"
 
-[larsoft.metadata]
+[app.larsoft.metadata]
 mdprojectversion = "v10_06_00_06p03"
