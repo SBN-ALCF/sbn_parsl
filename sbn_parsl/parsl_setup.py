@@ -102,6 +102,15 @@ def _worker_init(cfg: Config, mps: bool = True):
             'echo "start_server -uid $( id -u )" | nvidia-cuda-mps-control',
         ]
 
+    if cfg.site.monitor_cmd:
+        cmd_base = cfg.site.monitor_cmd.split()[0]
+        cmd_name = pathlib.Path(cmd_base).name
+        cmds.append(
+            f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
+            f'({cfg.site.monitor_cmd} &); '
+            f'fi'
+        )
+
     return "&&".join(cmds)
 
 

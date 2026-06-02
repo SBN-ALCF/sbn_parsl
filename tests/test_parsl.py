@@ -407,6 +407,44 @@ def test_env_file_config():
     assert cfg.larsoft.env_file == "/path/to/my_env_file.sh"
 
 
+def test_monitor_cmd_config():
+    cfg = Config(
+        site=SiteConfig(
+            name="local",
+            cpus_per_node=2,
+            cores_per_worker=1,
+            monitor_cmd="/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl",
+        ),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=None,
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+    assert cfg.site.monitor_cmd == "/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl"
+
+
+def test_worker_init_monitor_cmd():
+    from sbn_parsl.parsl_setup import _worker_init
+
+    cfg = Config(
+        site=SiteConfig(
+            name="local",
+            cpus_per_node=2,
+            cores_per_worker=1,
+            monitor_cmd="/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl",
+        ),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=None,
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+
+    worker_init_str = _worker_init(cfg, mps=False)
+    assert 'pgrep -f "lar_mon.sh"' in worker_init_str
+    assert '(/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl &)' in worker_init_str
+
+
+
 
 
 

@@ -47,6 +47,7 @@ class SiteConfig:
     pbs_filesystems: str = "home"
     worker_init: Any = ""
     virtual_env: Optional[str] = None
+    monitor_cmd: str = ""
 
 
 @dataclass
