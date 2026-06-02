@@ -65,6 +65,55 @@ def parse_arguments(argv):
     return args
 
 
+def print_config_summary(cfg: Config):
+    """Print a clean and curated summary of the user's config instead of the verbose ParslConfig."""
+    from sbn_parsl.parsl_setup import detect_active_env
+
+    print("=" * 60)
+    print("                    SBN Parsl Workflow Config Summary")
+    print("=" * 60)
+
+    # 1. Queue & Site Settings
+    print(f"Site & Job Settings:")
+    print(f"  Site Name:        {cfg.site.name}")
+    print(f"  Allocation:       {cfg.job.allocation}")
+    print(f"  Queue:            {cfg.job.queue}")
+    print(f"  Nodes Per Block:  {cfg.job.nodes_per_block}")
+    print(f"  Walltime:         {cfg.job.walltime}")
+    print(f"  Retries:          {cfg.job.retries}")
+
+    # 2. Run Settings
+    print(f"\nRun Settings:")
+    print(f"  Output Directory: {cfg.run.output}")
+    print(f"  Number of Subruns:{cfg.run.nsubruns}")
+    print(f"  Require Success:  {cfg.run.require_success}")
+
+    # 3. Environment & Virtual Env
+    print(f"\nPython Environment:")
+    if cfg.site.virtual_env:
+        print(f"  Configured Venv:  {cfg.site.virtual_env}")
+    active_env = detect_active_env()
+    if active_env:
+        print(f"  Active Venv:      {active_env}")
+    else:
+        print(f"  Active Venv:      None (using fallback)")
+
+    # 4. App & Workflow Settings
+    print(f"\nApp & Workflow Settings:")
+    if cfg.larsoft:
+        print(f"  LArSoft Experiment: {cfg.larsoft.experiment}")
+        print(f"  LArSoft Version:    {cfg.larsoft.version}")
+        print(f"  LArSoft Qualifier:  {cfg.larsoft.qual}")
+        if cfg.larsoft.env_file:
+            print(f"  Custom Env File:    {cfg.larsoft.env_file}")
+
+    if cfg.workflow.fcls:
+        print(f"  Workflow FCLs:")
+        for name, fcl in cfg.workflow.fcls.items():
+            print(f"    - {name}: {fcl}")
+    print("=" * 60)
+
+
 def entry_point(argv, wfe_class):
     """Provide common setup and execution for sbn_parsl workflows using parsed args."""
     if isinstance(argv, list):
@@ -187,7 +236,7 @@ def entry_point(argv, wfe_class):
         return
 
     parsl_config = create_parsl_config(cfg, local=args.local)
-    print(parsl_config)
+    print_config_summary(cfg)
     parsl.clear()
 
     with parsl.load(parsl_config) as dfk:

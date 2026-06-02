@@ -380,7 +380,7 @@ def larsoft_runfunc(
 
     stdout = str(run_dir / context.output_file.name.replace(".root", ".out"))
     stderr = str(run_dir / context.output_file.name.replace(".root", ".err"))
-    if context.output_file.suffix != "root":
+    if context.output_file.suffix != ".root":
         stdout += ".out"
         stderr += ".err"
 
