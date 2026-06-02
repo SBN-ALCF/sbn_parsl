@@ -1,5 +1,8 @@
 import socket
 import pathlib
+import os
+import sys
+from typing import Optional
 from parsl.config import Config as ParslConfig
 from parsl.dataflow.memoization import BasicMemoizer
 from parsl.addresses import address_by_interface
@@ -9,6 +12,24 @@ from parsl.launchers import MpiExecLauncher
 from parsl.executors.high_throughput.executor import DEFAULT_LAUNCH_CMD
 
 from sbn_parsl.config import Config
+
+
+def detect_active_env() -> Optional[str]:
+    """Detect current virtualenv or conda environment path on the submit host."""
+    # 1. Check for standard virtual environment environment variable
+    if "VIRTUAL_ENV" in os.environ:
+        return os.environ["VIRTUAL_ENV"]
+    # 2. Check for conda environment variable
+    if "CONDA_PREFIX" in os.environ:
+        return os.environ["CONDA_PREFIX"]
+    # 3. Fallback: parse sys.executable to find virtual environment path
+    exe = sys.executable
+    if "/bin/" in exe:
+        prefix = exe.split("/bin/")[0]
+        # Filter out standard system paths to avoid false activation attempts
+        if prefix not in ("", "/usr", "/usr/local", "/bin"):
+            return prefix
+    return None
 
 
 def aurora_affinity(per_worker: int = 1, ncpus: int = -1):
@@ -30,7 +51,23 @@ def _worker_init(cfg: Config, mps: bool = True):
     """Return list of worker init commands based on the Config."""
     cmds = []
 
-    # Custom worker init from site config
+    # 1. Determine environment path to activate
+    # Option A: explicitly configured virtual_env
+    # Option B: automatically detected active environment
+    # Option C: fallback to ~/.venv/{worker_venv_name}
+    env_path = None
+    if cfg.site.virtual_env is not None:
+        env_path = cfg.site.virtual_env or None
+    else:
+        env_path = detect_active_env()
+        if not env_path and cfg.site.worker_venv_name:
+            env_path = f"~/.venv/{cfg.site.worker_venv_name}"
+
+    # Prepend env activation first
+    if env_path:
+        cmds.append(f"source {env_path}/bin/activate")
+
+    # 2. Add custom worker init from site config
     if cfg.site.worker_init:
         if isinstance(cfg.site.worker_init, list):
             cmds.extend(cfg.site.worker_init)
@@ -43,33 +80,22 @@ def _worker_init(cfg: Config, mps: bool = True):
                 ]
             )
     else:
-        venv_name = cfg.site.worker_venv_name
         hostname = socket.gethostname()
         if (
             cfg.site.name == "polaris"
             or "polaris" in hostname
             or hostname.startswith("x3")
         ):
-            # use conda
-            cmds += [
-                "export TMPDIR=/tmp/",
-                f"source ~/.venv/{venv_name}/bin/activate",
-            ]
+            cmds.append("export TMPDIR=/tmp/")
         elif (
             cfg.site.name == "aurora"
             or "aurora" in hostname
             or hostname.startswith("x4")
         ):
-            # use pip with frameworks
             cmds += [
                 "export TMPDIR=/tmp/",
                 "module load frameworks",
-                f"source ~/.venv/{venv_name}/bin/activate",
             ]
-        else:
-            # Generic local or other site
-            if venv_name:
-                cmds += [f"source ~/.venv/{venv_name}/bin/activate"]
 
     if mps and cfg.site.name == "polaris":
         cmds += [

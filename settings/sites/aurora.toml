@@ -10,8 +10,7 @@ pbs_filesystems = "home:flare"
 worker_venv_name = "sbn"
 worker_init = [
     "export TMPDIR=/tmp/",
-    "module load frameworks",
-    "source ~/.venv/sbn/bin/activate"
+    "module load frameworks"
 ]
 
 [app.larsoft]

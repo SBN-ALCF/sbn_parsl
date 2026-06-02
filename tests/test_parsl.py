@@ -187,3 +187,141 @@ def test_workflow_caching_pass(temp_db_dir):
     parsl.clear()
 
     assert wfe2._skip_counter == 0
+
+
+def test_detect_active_env(monkeypatch):
+    from sbn_parsl.parsl_setup import detect_active_env
+
+    # 1. Test VIRTUAL_ENV detection
+    monkeypatch.setenv("VIRTUAL_ENV", "/path/to/my_venv")
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    assert detect_active_env() == "/path/to/my_venv"
+
+    # 2. Test CONDA_PREFIX detection
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setenv("CONDA_PREFIX", "/path/to/my_conda")
+    assert detect_active_env() == "/path/to/my_conda"
+
+    # 3. Test fallback to sys.executable prefix
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    monkeypatch.setattr("sys.executable", "/some/custom/path/.venv/bin/python")
+    assert detect_active_env() == "/some/custom/path/.venv"
+
+
+def test_worker_init_automatic_env(monkeypatch):
+    from sbn_parsl.parsl_setup import _worker_init
+
+    # Set mock environment
+    monkeypatch.setenv("VIRTUAL_ENV", "/home/user/my_active_venv")
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+
+    cfg = Config(
+        site=SiteConfig(
+            name="polaris",
+            cpus_per_node=32,
+            cores_per_worker=1,
+            worker_init=[
+                "export TMPDIR=/tmp/",
+                "source /some/custom/path/bin/activate"
+            ]
+        ),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=None,
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+
+    worker_init_str = _worker_init(cfg, mps=False)
+    # The active env path should be prepended, AND custom worker_init commands kept unmodified
+    assert worker_init_str.startswith("source /home/user/my_active_venv/bin/activate")
+    assert "source /some/custom/path/bin/activate" in worker_init_str
+
+
+def test_worker_init_configured_env(monkeypatch):
+    from sbn_parsl.parsl_setup import _worker_init
+
+    # Set mock environment that should be ignored
+    monkeypatch.setenv("VIRTUAL_ENV", "/home/user/my_active_venv")
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+
+    cfg = Config(
+        site=SiteConfig(
+            name="polaris",
+            cpus_per_node=32,
+            cores_per_worker=1,
+            virtual_env="/custom/venv/path",
+            worker_init=[
+                "export TMPDIR=/tmp/"
+            ]
+        ),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=None,
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+
+    worker_init_str = _worker_init(cfg, mps=False)
+    # The configured virtual_env should be prepended
+    assert worker_init_str.startswith("source /custom/venv/path/bin/activate")
+    assert "export TMPDIR=/tmp/" in worker_init_str
+
+
+def test_worker_init_fallback(monkeypatch):
+    from sbn_parsl.parsl_setup import _worker_init
+
+    # Clear environments
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    # Set sys.executable to standard path to avoid custom python matching
+    monkeypatch.setattr("sys.executable", "/usr/bin/python")
+
+    cfg = Config(
+        site=SiteConfig(
+            name="polaris",
+            cpus_per_node=32,
+            cores_per_worker=1,
+            worker_venv_name="sbn_test",
+            worker_init=[
+                "export TMPDIR=/tmp/"
+            ]
+        ),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=None,
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+
+    worker_init_str = _worker_init(cfg, mps=False)
+    # Should fall back to the configured/default worker_venv_name
+    assert worker_init_str.startswith("source ~/.venv/sbn_test/bin/activate")
+
+
+def test_worker_init_explicit_disable(monkeypatch):
+    from sbn_parsl.parsl_setup import _worker_init
+
+    # Set mock environment that should be ignored because of explicit empty virtual_env
+    monkeypatch.setenv("VIRTUAL_ENV", "/home/user/my_active_venv")
+
+    cfg = Config(
+        site=SiteConfig(
+            name="polaris",
+            cpus_per_node=32,
+            cores_per_worker=1,
+            virtual_env="",
+            worker_init=[
+                "export TMPDIR=/tmp/"
+            ]
+        ),
+        job=JobConfig(allocation="test", queue="test"),
+        larsoft=None,
+        workflow=WorkflowConfig(),
+        run=RunConfig(nsubruns=1, output="test_output")
+    )
+
+    worker_init_str = _worker_init(cfg, mps=False)
+    # Should not prepend any activation
+    assert "bin/activate" not in worker_init_str
+    assert worker_init_str == "export TMPDIR=/tmp/"
+
+

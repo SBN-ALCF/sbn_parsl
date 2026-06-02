@@ -8,9 +8,7 @@ cpu_affinity = "none"
 available_accelerators = 0
 pbs_filesystems = ""
 worker_venv_name = "sbn"
-worker_init = [
-    "source ~/.venv/sbn/bin/activate"
-]
+worker_init = []
 
 [app.larsoft]
 container_path = "/home/twester/containers/slf7.sif"
