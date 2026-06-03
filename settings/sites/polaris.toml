@@ -11,6 +11,47 @@ worker_init = [
     "export TMPDIR=/tmp/"
 ]
 
+[site.queues.debug]
+nodes_min = 1
+nodes_max = 2
+walltime_min = "00:05:00"
+walltime_max = "01:00:00"
+
+[site.queues.debug-scaling]
+nodes_min = 1
+nodes_max = 10
+walltime_min = "00:05:00"
+walltime_max = "01:00:00"
+
+[site.queues.preemptable]
+nodes_min = 1
+nodes_max = 10
+walltime_min = "00:05:00"
+walltime_max = "72:00:00"
+
+[site.queues.prod]
+is_routing = true
+routes_to = ["small", "medium", "large"]
+
+[site.queues.small]
+nodes_min = 10
+nodes_max = 24
+walltime_min = "00:05:00"
+walltime_max = "03:00:00"
+
+[site.queues.medium]
+nodes_min = 25
+nodes_max = 99
+walltime_min = "00:05:00"
+walltime_max = "06:00:00"
+
+[site.queues.large]
+nodes_min = 100
+nodes_max = 496
+walltime_min = "00:05:00"
+walltime_max = "24:00:00"
+
+
 [app.larsoft]
 container_path = "/lus/grand/projects/neutrinoGPU/software/containers/slf7.sif"
 larsoft_top = "/lus/grand/projects/neutrinoGPU/software/larsoft"

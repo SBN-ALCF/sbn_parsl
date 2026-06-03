@@ -48,6 +48,8 @@ class SiteConfig:
     worker_init: Any = ""
     virtual_env: Optional[str] = None
     monitor_cmd: str = ""
+    queues: Dict[str, Any] = field(default_factory=dict)
+
 
 
 @dataclass
@@ -420,6 +422,8 @@ class Config:
                 active_apps.append(app_name)
 
         setattr(cfg, "_active_dynamic_apps", active_apps)
+        from sbn_parsl.validation import validate_queue_limits
+        validate_queue_limits(cfg)
         return cfg
 
     def to_dict(self) -> Dict:

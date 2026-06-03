@@ -11,6 +11,41 @@ worker_init = [
     "export TMPDIR=/tmp/",
 ]
 
+[site.queues.debug]
+nodes_min = 1
+nodes_max = 2
+walltime_min = "00:05:00"
+walltime_max = "01:00:00"
+
+[site.queues.debug-scaling]
+nodes_min = 2
+nodes_max = 256
+walltime_min = "00:05:00"
+walltime_max = "01:00:00"
+
+[site.queues.prod]
+is_routing = true
+routes_to = ["small", "medium", "large"]
+
+[site.queues.small]
+nodes_min = 256
+nodes_max = 1024
+walltime_min = "00:05:00"
+walltime_max = "12:00:00"
+
+[site.queues.medium]
+nodes_min = 1025
+nodes_max = 1919
+walltime_min = "00:05:00"
+walltime_max = "18:00:00"
+
+[site.queues.large]
+nodes_min = 1920
+nodes_max = 10624
+walltime_min = "00:05:00"
+walltime_max = "24:00:00"
+
+
 [app.larsoft]
 container_path = "/lus/flare/projects/neutrinoGPU/containers/slf7.sif"
 larsoft_top = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft"
