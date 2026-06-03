@@ -41,10 +41,10 @@ run_once() {
         | awk 'BEGIN {printf "{"} {if (NR>1) printf ","; printf "\"%d\":{\"fcl\":\"%s\",\"cpu\":%.1f,\"rss\":%.1f}", $3, $4, $2, $1} END {printf "}"}')
     [ -z "$lar_json" ] && lar_json="{}"
 
-    # 2. Gather per-core CPU usage (condensed to a list of busy percentages)
+    # 2. Gather per-core CPU usage (condensed to a list of busy percentages, rounded to 2 decimal places)
     local cpu_json
     if command -v mpstat &> /dev/null; then
-        cpu_json=$(mpstat -P ALL -o JSON 1 1 2>/dev/null | jq -c '[.sysstat.hosts[0].statistics[0]."cpu-load"[] | select(.cpu != "all") | 100.0 - .idle]')
+        cpu_json=$(mpstat -P ALL -o JSON 1 1 2>/dev/null | jq -c '[.sysstat.hosts[0].statistics[0]."cpu-load"[] | select(.cpu != "all") | 100.0 - .idle | (. * 100 | round) / 100]')
     fi
     [ -z "$cpu_json" ] && cpu_json="[]"
 

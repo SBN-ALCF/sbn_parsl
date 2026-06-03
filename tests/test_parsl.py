@@ -413,14 +413,14 @@ def test_monitor_cmd_config():
             name="local",
             cpus_per_node=2,
             cores_per_worker=1,
-            monitor_cmd="/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl",
+            monitor_cmd="/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl",
         ),
         job=JobConfig(allocation="test", queue="test"),
         larsoft=None,
         workflow=WorkflowConfig(),
         run=RunConfig(nsubruns=1, output="test_output")
     )
-    assert cfg.site.monitor_cmd == "/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl"
+    assert cfg.site.monitor_cmd == "/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl"
 
 
 def test_worker_init_monitor_cmd():
@@ -431,7 +431,7 @@ def test_worker_init_monitor_cmd():
             name="local",
             cpus_per_node=2,
             cores_per_worker=1,
-            monitor_cmd="/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl",
+            monitor_cmd="/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl",
         ),
         job=JobConfig(allocation="test", queue="test"),
         larsoft=None,
@@ -441,7 +441,7 @@ def test_worker_init_monitor_cmd():
 
     worker_init_str = _worker_init(cfg, mps=False)
     assert 'pgrep -f "lar_mon.sh"' in worker_init_str
-    assert '/path/to/lar_mon.sh -i 10 -o node_mon_\\$(hostname).jsonl &' in worker_init_str
+    assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' in worker_init_str
 
 
 def test_entry_point_file_cache_missing_error(temp_db_dir, capsys):
