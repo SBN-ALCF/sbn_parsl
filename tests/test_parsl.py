@@ -74,6 +74,7 @@ def default_parsl_runfunc(
     _transfer_ids(stage_self, future.outputs[0])
 
     executor.futures.add(future.outputs[0])
+    executor._stage_counter += 1
     return StageResult(outputs=[output_file])
 
 
@@ -131,6 +132,23 @@ class MinimalExecutor(LArSoftExecutor):
         return workflow
 
 
+class MinimalExecutorPass(LArSoftExecutor):
+    def __init__(self, cfg: Config):
+        super().__init__(cfg)
+        self.runfunc = functools.partial(
+            default_parsl_runfunc, executor=self, retry_fails=False, app=pass_app
+        )
+
+    def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
+        workflow = Workflow(stage_order=[DefaultStageTypes.GEN], default_fcls=self.fcls)
+        s = Stage(DefaultStageTypes.GEN)
+        s.runfunc = self.runfunc
+        s.run_dir = self.output_dir / "gen"
+        workflow.add_final_stage(s)
+
+        return workflow
+
+
 def test_workflow_caching_fail(temp_db_dir):
     """Test that failed stage is not re-run if require_success is False."""
     config = minimal_parsl_config(temp_db_dir)
@@ -140,6 +158,10 @@ def test_workflow_caching_fail(temp_db_dir):
     cfg = create_mock_config(temp_db_dir)
     wfe = MinimalExecutor(cfg, retry_fails=False)
     wfe.execute()
+
+    assert wfe._stage_counter == 1
+    assert wfe._success_counter == 0
+    assert wfe._fail_counter == 1
 
     # check that the status was written to the db
     disk_db = sqlite3.connect(str(wfe._db_file))
@@ -158,6 +180,9 @@ def test_workflow_caching_fail(temp_db_dir):
     parsl.clear()
 
     assert wfe2._skip_counter == 1
+    assert wfe2._stage_counter == 0
+    assert wfe2._success_counter == 0
+    assert wfe2._fail_counter == 0
 
 
 def test_workflow_caching_pass(temp_db_dir):
@@ -169,6 +194,10 @@ def test_workflow_caching_pass(temp_db_dir):
     cfg = create_mock_config(temp_db_dir)
     wfe = MinimalExecutor(cfg, retry_fails=False)
     wfe.execute()
+
+    assert wfe._stage_counter == 1
+    assert wfe._success_counter == 0
+    assert wfe._fail_counter == 1
 
     # check that the status was written to the db
     disk_db = sqlite3.connect(str(wfe._db_file))
@@ -187,6 +216,26 @@ def test_workflow_caching_pass(temp_db_dir):
     parsl.clear()
 
     assert wfe2._skip_counter == 0
+    assert wfe2._stage_counter == 1
+    assert wfe2._success_counter == 0
+    assert wfe2._fail_counter == 1
+
+
+def test_workflow_counters_pass(temp_db_dir):
+    """Test that successful stage has correct counters."""
+    config = minimal_parsl_config(temp_db_dir)
+    parsl.clear()
+    parsl.load(config)
+
+    cfg = create_mock_config(temp_db_dir)
+    wfe = MinimalExecutorPass(cfg)
+    wfe.execute()
+    parsl.clear()
+
+    assert wfe._stage_counter == 1
+    assert wfe._success_counter == 1
+    assert wfe._fail_counter == 0
+    assert wfe._skip_counter == 0
 
 
 def test_detect_active_env(monkeypatch):

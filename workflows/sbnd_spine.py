@@ -111,6 +111,7 @@ def runfunc(self, fcl, input_files, run_dir, iteration, executor):
     _transfer_ids(self, future.outputs[0])
 
     executor.futures.add(future.outputs[0])
+    executor._stage_counter += 1
 
     return future.outputs
 

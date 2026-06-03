@@ -323,8 +323,6 @@ def larsoft_runfunc(
         executor._skip_counter += 1
         return StageResult(outputs=[context.output_file])
 
-    executor._stage_counter += 1
-
     # clean any input files that are in /tmp after this stage completes
     rm_cmd = "\n".join(
         [f"rm {f}" for f in context.input_files if str(f).startswith("/tmp/")]
@@ -407,6 +405,7 @@ def larsoft_runfunc(
 
     _transfer_ids(self, future.outputs[0])
     executor.futures.add(future.outputs[0])
+    executor._stage_counter += 1
 
     return StageResult(outputs=future.outputs)
 
