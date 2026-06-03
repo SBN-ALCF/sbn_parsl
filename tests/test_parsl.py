@@ -491,6 +491,9 @@ def test_worker_init_monitor_cmd():
     worker_init_str = _worker_init(cfg, mps=False)
     assert 'pgrep -f "lar_mon.sh"' in worker_init_str
     assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' in worker_init_str
+    assert 'PARSL_RUN_NUM=""' in worker_init_str
+    assert 'mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"' in worker_init_str
+    assert 'cd ..' in worker_init_str
 
 
 def test_entry_point_file_cache_missing_error(temp_db_dir, capsys):
