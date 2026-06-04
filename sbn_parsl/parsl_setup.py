@@ -206,7 +206,7 @@ def create_executor_by_hostname(cfg: Config, provider):
             f'{monitor_setup} && '
             f'if [ -n "\\$PARSL_RUN_NUM" ]; then mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"; fi && '
             f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
-            f'{cfg.site.monitor_cmd} & '
+            f'{cfg.site.monitor_cmd} >/dev/null 2>&1 </dev/null & '
             f'fi && '
             f'if [ -n "\\$PARSL_RUN_NUM" ]; then cd ..; fi'
         )
