@@ -197,18 +197,18 @@ def create_executor_by_hostname(cfg: Config, provider):
         monitor_setup = (
             'PARSL_RUN_NUM="" && '
             'for run_dir in ../[0-9][0-9][0-9]; do '
-            'if [ -d "$run_dir" ]; then '
-            'PARSL_RUN_NUM=$(basename "$run_dir"); '
+            'if [ -d "\\$run_dir" ]; then '
+            'PARSL_RUN_NUM=\\$(basename "\\$run_dir"); '
             'fi; '
             'done'
         )
         monitor_cmd = (
             f'{monitor_setup} && '
-            f'if [ -n "$PARSL_RUN_NUM" ]; then mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"; fi && '
+            f'if [ -n "\\$PARSL_RUN_NUM" ]; then mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"; fi && '
             f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
             f'{cfg.site.monitor_cmd} & '
             f'fi && '
-            f'if [ -n "$PARSL_RUN_NUM" ]; then cd ..; fi'
+            f'if [ -n "\\$PARSL_RUN_NUM" ]; then cd ..; fi'
         )
         init_cmd += "\n" + monitor_cmd
 

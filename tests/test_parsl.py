@@ -501,7 +501,7 @@ def test_worker_init_monitor_cmd():
     assert 'pgrep -f "lar_mon.sh"' in launch_cmd
     assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' in launch_cmd
     assert 'PARSL_RUN_NUM=""' in launch_cmd
-    assert 'mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"' in launch_cmd
+    assert 'mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"' in launch_cmd
     assert 'cd ..' in launch_cmd
 
 
