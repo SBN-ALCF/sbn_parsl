@@ -497,6 +497,7 @@ def test_worker_init_monitor_cmd():
         executor = create_executor_by_hostname(cfg, None)
 
     launch_cmd = executor.launch_cmd
+    assert 'mkdir -p test_output/runinfo/cmd && cd test_output/runinfo/cmd' in launch_cmd
     assert 'pgrep -f "lar_mon.sh"' in launch_cmd
     assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' in launch_cmd
     assert 'PARSL_RUN_NUM=""' in launch_cmd

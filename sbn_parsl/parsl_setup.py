@@ -168,7 +168,10 @@ def create_executor_by_hostname(cfg: Config, provider):
             per_worker=cfg.site.cores_per_worker, ncpus=max_workers_per_node
         )
 
-    init_cmd = ""
+    run_dir = cfg.run.runinfo or cfg.run.output
+    working_dir = str(pathlib.Path(run_dir) / "runinfo" / "cmd")
+
+    init_cmd = f"mkdir -p {working_dir} && cd {working_dir}"
     # copy larsoft tarballs to the node
     if cfg.larsoft and cfg.larsoft.tarballs:
         tar_cmds = []
@@ -208,9 +211,6 @@ def create_executor_by_hostname(cfg: Config, provider):
             f'if [ -n "$PARSL_RUN_NUM" ]; then cd ..; fi'
         )
         init_cmd += "\n" + monitor_cmd
-
-    run_dir = cfg.run.runinfo or cfg.run.output
-    working_dir = str(pathlib.Path(run_dir) / "runinfo" / "cmd")
 
     exec_kwargs = {
         "label": "htex",
