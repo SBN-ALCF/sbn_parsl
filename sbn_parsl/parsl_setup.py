@@ -99,29 +99,7 @@ def _worker_init(cfg: Config, mps: bool = True):
             "export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps",
             "export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-log",
             "CUDA_VISIBLE_DEVICES=0,1,2,3 nvidia-cuda-mps-control -d",
-            'echo "start_server -uid $( id -u )" | nvidia-cuda-mps-control',
         ]
-
-    if cfg.site.monitor_cmd:
-        cmd_base = cfg.site.monitor_cmd.split()[0]
-        cmd_name = pathlib.Path(cmd_base).name
-        monitor_setup = (
-            'PARSL_RUN_NUM="" && '
-            'for run_dir in ../[0-9][0-9][0-9]; do '
-            'if [ -d "$run_dir" ]; then '
-            'PARSL_RUN_NUM=$(basename "$run_dir"); '
-            'fi; '
-            'done'
-        )
-        cmds.append(
-            f'{monitor_setup} && '
-            f'if [ -n "$PARSL_RUN_NUM" ]; then mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"; fi && '
-            f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
-            f'{cfg.site.monitor_cmd} & '
-            f'fi && '
-            f'if [ -n "$PARSL_RUN_NUM" ]; then cd ..; fi'
-        )
-
     return "&&".join(cmds)
 
 
@@ -209,6 +187,27 @@ def create_executor_by_hostname(cfg: Config, provider):
                 f"cp {pkg_path} /tmp && tar -xf {tarball_path} -C {dest_path} && rm -f {tarball_path}"
             )
         init_cmd += "\n" + "\n".join(tar_cmds)
+
+    if cfg.site.monitor_cmd:
+        cmd_base = cfg.site.monitor_cmd.split()[0]
+        cmd_name = pathlib.Path(cmd_base).name
+        monitor_setup = (
+            'PARSL_RUN_NUM="" && '
+            'for run_dir in ../[0-9][0-9][0-9]; do '
+            'if [ -d "$run_dir" ]; then '
+            'PARSL_RUN_NUM=$(basename "$run_dir"); '
+            'fi; '
+            'done'
+        )
+        monitor_cmd = (
+            f'{monitor_setup} && '
+            f'if [ -n "$PARSL_RUN_NUM" ]; then mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"; fi && '
+            f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
+            f'{cfg.site.monitor_cmd} & '
+            f'fi && '
+            f'if [ -n "$PARSL_RUN_NUM" ]; then cd ..; fi'
+        )
+        init_cmd += "\n" + monitor_cmd
 
     run_dir = cfg.run.runinfo or cfg.run.output
     working_dir = str(pathlib.Path(run_dir) / "runinfo" / "cmd")

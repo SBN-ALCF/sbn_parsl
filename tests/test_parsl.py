@@ -473,7 +473,8 @@ def test_monitor_cmd_config():
 
 
 def test_worker_init_monitor_cmd():
-    from sbn_parsl.parsl_setup import _worker_init
+    from sbn_parsl.parsl_setup import _worker_init, create_executor_by_hostname
+    from unittest.mock import patch
 
     cfg = Config(
         site=SiteConfig(
@@ -489,11 +490,18 @@ def test_worker_init_monitor_cmd():
     )
 
     worker_init_str = _worker_init(cfg, mps=False)
-    assert 'pgrep -f "lar_mon.sh"' in worker_init_str
-    assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' in worker_init_str
-    assert 'PARSL_RUN_NUM=""' in worker_init_str
-    assert 'mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"' in worker_init_str
-    assert 'cd ..' in worker_init_str
+    assert 'pgrep -f "lar_mon.sh"' not in worker_init_str
+    assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' not in worker_init_str
+
+    with patch('sbn_parsl.parsl_setup.address_by_interface', return_value='127.0.0.1'):
+        executor = create_executor_by_hostname(cfg, None)
+
+    launch_cmd = executor.launch_cmd
+    assert 'pgrep -f "lar_mon.sh"' in launch_cmd
+    assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' in launch_cmd
+    assert 'PARSL_RUN_NUM=""' in launch_cmd
+    assert 'mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"' in launch_cmd
+    assert 'cd ..' in launch_cmd
 
 
 def test_entry_point_file_cache_missing_error(temp_db_dir, capsys):
