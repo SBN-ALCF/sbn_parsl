@@ -108,8 +108,8 @@ def _worker_init(cfg: Config, mps: bool = True):
         monitor_setup = (
             'PARSL_RUN_NUM="" && '
             'for run_dir in ../[0-9][0-9][0-9]; do '
-            'if [ -f "$run_dir/submit_scripts/$JOBNAME" ] || [ -f "$run_dir/submit_scripts/${JOBNAME}.sh" ]; then '
-            'PARSL_RUN_NUM=$(basename "$run_dir") && break; '
+            'if [ -d "$run_dir" ]; then '
+            'PARSL_RUN_NUM=$(basename "$run_dir"); '
             'fi; '
             'done'
         )
