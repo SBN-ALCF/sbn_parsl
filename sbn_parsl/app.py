@@ -70,7 +70,7 @@ def print_config_summary(cfg: Config):
     from sbn_parsl.parsl_setup import detect_active_env
 
     print("=" * 60)
-    print("                    SBN Parsl Workflow Config Summary")
+    print("             SBN Parsl Workflow Config Summary")
     print("=" * 60)
 
     # 1. Queue & Site Settings
@@ -101,9 +101,8 @@ def print_config_summary(cfg: Config):
     # 4. App & Workflow Settings
     print(f"\nApp & Workflow Settings:")
     if cfg.larsoft:
-        print(f"  LArSoft Experiment: {cfg.larsoft.experiment}")
-        print(f"  LArSoft Version:    {cfg.larsoft.version}")
-        print(f"  LArSoft Qualifier:  {cfg.larsoft.qual}")
+        print(f"  Experiment: {cfg.larsoft.experiment}")
+        print(f"  Software:    {cfg.larsoft.software} {cfg.larsoft.version} {cfg.larsoft.qual}")
         if cfg.larsoft.env_file:
             print(f"  Custom Env File:    {cfg.larsoft.env_file}")
 
