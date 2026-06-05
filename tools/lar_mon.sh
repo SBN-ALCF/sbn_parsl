@@ -22,6 +22,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Resolve hostname placeholders in output filename if present (e.g. $(hostname) or \$(hostname))
+if [ -n "$OUTPUT" ]; then
+    OUTPUT=$(echo "$OUTPUT" | sed "s/\\\\\\\${hostname}/$(hostname)/g" | sed "s/\\\\\\\$(hostname)/$(hostname)/g" | sed "s/\\\${hostname}/$(hostname)/g" | sed "s/\\\$(hostname)/$(hostname)/g")
+fi
+
 # Query GPU stats (NVIDIA Polaris) - easily extensible to Intel GPU query tools in the future
 get_gpu_stats() {
     if command -v nvidia-smi &> /dev/null; then
