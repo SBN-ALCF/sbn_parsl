@@ -77,7 +77,8 @@ def test_metadata_generator():
         run=MagicMock(spec=RunConfig),
     )
 
-    mg = MetadataGenerator(cfg)
+    fcls = {"gen": "input.fcl"}
+    mg = MetadataGenerator(cfg, fcls, defer_check=True)
 
     # Mock os.path.isfile to return True for the injector
     import os
@@ -86,8 +87,8 @@ def test_metadata_generator():
     os.path.isfile = lambda x: x == "/path/to/injector"
 
     try:
-        cmd = mg.run_cmd("output.json", "input.fcl")
-        expected = "/path/to/injector --json output.json --fcl input.fcl --project sbnd --version v1"
+        cmd = mg.run_cmd("output.json", "input.fcl", check_exists=False)
+        expected = "/path/to/injector --inputfclname input.fcl --mdfclname input.fcl --mdprojectname input --mdprojectstage gen --mdprojectversion v1 --mdprojectsoftware sbndcode --mdproductionname MCP2023Blike --mdproductiontype polaris --mdappversion v1 --mdfiletype mc --mdappfamily art --mdruntype physics --mdgroupname sbnd --tfilemdjsonname output.json"
         assert cmd == expected
     finally:
         os.path.isfile = original_isfile

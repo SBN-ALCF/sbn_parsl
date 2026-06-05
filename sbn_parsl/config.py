@@ -80,6 +80,20 @@ class MetadataConfig:
 
     exe: Optional[str] = None
     mdprojectversion: Optional[str] = None
+    inputfclname: Optional[str] = None
+    mdfclname: Optional[str] = None
+    mdprojectname: Optional[str] = None
+    mdprojectstage: Optional[str] = None
+    mdprojectsoftware: Optional[str] = None
+    mdproductionname: Optional[str] = None
+    mdproductiontype: Optional[str] = None
+    mdappversion: Optional[str] = None
+    mdfiletype: Optional[str] = None
+    mdappfamily: Optional[str] = None
+    mdruntype: Optional[str] = None
+    mdgroupname: Optional[str] = None
+    tfilemdjsonname: Optional[str] = None
+    cafname: Optional[str] = None
 
 
 @dataclass
@@ -366,7 +380,11 @@ class Config:
             # Apply workflow-level overrides
             merged_metadata.update(wf_metadata)
 
-            metadata_cfg = MetadataConfig(**merged_metadata)
+            import dataclasses
+            valid_keys = {f.name for f in dataclasses.fields(MetadataConfig)}
+            filtered_metadata = {k: v for k, v in merged_metadata.items() if k in valid_keys}
+            metadata_cfg = MetadataConfig(**filtered_metadata)
+            metadata_cfg._extra_fields = {k: v for k, v in merged_metadata.items() if k not in valid_keys}
 
             # Now update with whatever is in workflow larsoft config
             filtered_wf_larsoft = {
