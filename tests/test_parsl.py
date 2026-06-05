@@ -510,7 +510,7 @@ def test_worker_init_monitor_cmd():
 
     launch_cmd = executor.launch_cmd
     assert 'pgrep -f "lar_mon.sh"' not in launch_cmd
-    assert 'mkdir -p test_output/runinfo/cmd && cd test_output/runinfo/cmd' in launch_cmd
+    assert 'mkdir -p test_output/runinfo/cmd' not in launch_cmd
 
 
 def test_entry_point_file_cache_missing_error(temp_db_dir, capsys):

@@ -99,6 +99,7 @@ def _worker_init(cfg: Config, mps: bool = True):
             "export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps",
             "export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-log",
             "CUDA_VISIBLE_DEVICES=0,1,2,3 nvidia-cuda-mps-control -d",
+            'echo "start_server -uid $( id -u )" | nvidia-cuda-mps-control',
         ]
     return "&&".join(cmds)
 
@@ -196,10 +197,10 @@ def create_executor_by_hostname(cfg: Config, provider):
     run_dir = cfg.run.runinfo or cfg.run.output
     working_dir = str(pathlib.Path(run_dir) / "runinfo" / "cmd")
 
-    init_cmd = f"mkdir -p {working_dir} && cd {working_dir}"
+    init_cmds = []
     # copy larsoft tarballs to the node
     if cfg.larsoft and cfg.larsoft.tarballs:
-        tar_cmds = []
+        init_cmds.append(f"mkdir -p {working_dir} && cd {working_dir}")
         for pkg_name, pkg_path in cfg.larsoft.tarballs.items():
             pkg_path = pathlib.Path(pkg_path)
             if not pkg_path.is_file():
@@ -209,20 +210,23 @@ def create_executor_by_hostname(cfg: Config, provider):
             dest_path = pathlib.PurePosixPath("/tmp")
             tarball_path = pathlib.PurePosixPath("/tmp", pkg_path.name)
             if pkg_name == "root":
-                tar_cmds.append("mkdir -p /tmp/root_lib")
+                init_cmds.append("mkdir -p /tmp/root_lib")
                 dest_path = pathlib.PurePosixPath("/tmp", "root_lib")
-            tar_cmds.append(
+            init_cmds.append(
                 f"cp {pkg_path} /tmp && tar -xf {tarball_path} -C {dest_path} && rm -f {tarball_path}"
             )
-        init_cmd += "\n" + "\n".join(tar_cmds)
 
+    launch_cmds = []
+    if init_cmds:
+        launch_cmds.append("\n".join(init_cmds))
+    launch_cmds.append(DEFAULT_LAUNCH_CMD)
 
     exec_kwargs = {
         "label": "htex",
         "heartbeat_period": 15,
         "heartbeat_threshold": 120,
         "worker_debug": True,
-        "launch_cmd": "\n".join([init_cmd, DEFAULT_LAUNCH_CMD]),
+        "launch_cmd": "\n".join(launch_cmds),
         "max_workers_per_node": max_workers_per_node,
         "cores_per_worker": cfg.site.cores_per_worker,
         "address": address_by_interface("hsn0"),
