@@ -130,22 +130,22 @@ def create_provider_by_hostname(cfg: Config, local: bool = False):
         monitor_setup = (
             'PARSL_RUN_NUM="" && '
             'for run_dir in ../[0-9][0-9][0-9]; do '
-            'if [ -d "\\$run_dir" ]; then '
-            'PARSL_RUN_NUM=\\$(basename "\\$run_dir"); '
+            'if [ -d "$run_dir" ]; then '
+            'PARSL_RUN_NUM=$(basename "$run_dir"); '
             'fi; '
             'done'
         )
         monitor_cmd = (
             f'{monitor_setup} && '
-            f'if [ -n "\\$PARSL_RUN_NUM" ]; then mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"; fi && '
+            f'if [ -n "$PARSL_RUN_NUM" ]; then mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"; fi && '
             f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
-            f'if [ -n "\\$PBS_NUM_NODES" ]; then '
-            f'mpiexec -n "\\$PBS_NUM_NODES" --ppn 1 {cfg.site.monitor_cmd} > lar_mon_startup.log 2>&1 </dev/null & '
+            f'if [ -n "$PBS_NUM_NODES" ]; then '
+            f'mpiexec -n "$PBS_NUM_NODES" --ppn 1 {cfg.site.monitor_cmd} > lar_mon_startup.log 2>&1 </dev/null & '
             f'else '
             f'{cfg.site.monitor_cmd} > lar_mon_startup.log 2>&1 </dev/null & '
             f'fi; '
             f'fi && '
-            f'if [ -n "\\$PARSL_RUN_NUM" ]; then cd ..; fi'
+            f'if [ -n "$PARSL_RUN_NUM" ]; then cd ..; fi'
         )
 
     provider_worker_init = [cwd_cmd, worker_init, "export PATH=/opt/cray/pals/1.4/bin:${PATH}"]

@@ -501,7 +501,7 @@ def test_worker_init_monitor_cmd():
     assert 'pgrep -f "lar_mon.sh"' in p_worker_init
     assert 'lar_mon_startup.log' in p_worker_init
     assert 'PARSL_RUN_NUM=""' in p_worker_init
-    assert 'mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"' in p_worker_init
+    assert 'mkdir -p "$PARSL_RUN_NUM" && cd "$PARSL_RUN_NUM"' in p_worker_init
     assert 'cd ..' in p_worker_init
 
     # 3. Verify executor's launch_cmd does NOT contain the monitoring command anymore
