@@ -26,6 +26,7 @@ done
 get_gpu_stats() {
     if command -v nvidia-smi &> /dev/null; then
         nvidia-smi --query-gpu=pci.bus_id,name,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null \
+            | grep -E '^[0-9a-fA-F]{4}:' \
             | sed 's/, /,/g' \
             | awk -F"," 'BEGIN {printf "{"} {if (NR>1) printf ","; printf "\"%s\":{\"name\":\"%s\",\"gpu\":%.1f,\"mem\":%d,\"total_mem\":%d}", $1, $2, $3, $4, $5} END {printf "}"}'
     else
@@ -37,7 +38,7 @@ run_once() {
     # 1. Gather lar processes info
     local lar_json
     lar_json=$(ps -ww -C lar -o rss,%cpu=,pid=,args= 2>/dev/null | grep -v "defunct" \
-        | sed -E 's/(.*)lar\s+-c(.*\.fcl).*/\1 \2/g' | grep -e 'fcl$' \
+        | sed -n -E 's/^([[:space:]]*[0-9]+[[:space:]]+[0-9.]+[[:space:]]+[0-9]+)[[:space:]]+[^[:space:]]*lar[[:space:]]+-c[[:space:]]+([^[:space:]]+\.fcl).*/\1 \2/p' \
         | awk 'BEGIN {printf "{"} {if (NR>1) printf ","; printf "\"%d\":{\"fcl\":\"%s\",\"cpu\":%.1f,\"rss\":%.1f}", $3, $4, $2, $1} END {printf "}"}')
     [ -z "$lar_json" ] && lar_json="{}"
 
