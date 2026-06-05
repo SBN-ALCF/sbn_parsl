@@ -285,6 +285,8 @@ class Config:
         site_name: Optional[str] = None,
         job_overrides: Dict[str, Any] = None,
         run_overrides: Dict[str, Any] = None,
+        validate: bool = True,
+        force: bool = False,
     ) -> "Config":
 
         # 1. Detect site
@@ -422,8 +424,9 @@ class Config:
                 active_apps.append(app_name)
 
         setattr(cfg, "_active_dynamic_apps", active_apps)
-        from sbn_parsl.validation import validate_queue_limits
-        validate_queue_limits(cfg)
+        if validate:
+            from sbn_parsl.validation import validate_queue_limits
+            validate_queue_limits(cfg, force=force)
         return cfg
 
     def to_dict(self) -> Dict:

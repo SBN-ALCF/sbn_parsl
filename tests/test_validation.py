@@ -93,7 +93,12 @@ def test_validate_queue_limits(capsys):
     
     # 2. Invalid non-routing
     cfg.job.nodes_per_block = 5
-    validate_queue_limits(cfg)
+    with pytest.raises(ValueError) as excinfo:
+        validate_queue_limits(cfg)
+    assert "Job queue validation failed for queue 'debug'" in str(excinfo.value)
+
+    # Verify warning is printed when force=True
+    validate_queue_limits(cfg, force=True)
     captured = capsys.readouterr()
     assert "WARNING: Job queue validation failed for queue 'debug'" in captured.err
     
@@ -108,7 +113,12 @@ def test_validate_queue_limits(capsys):
     
     # 4. Invalid routing (doesn't fit either small or medium)
     cfg.job.nodes_per_block = 5  # Too small for routing queues
-    validate_queue_limits(cfg)
+    with pytest.raises(ValueError) as excinfo:
+        validate_queue_limits(cfg)
+    assert "do not match any execution sub-queues for routing queue 'prod'" in str(excinfo.value)
+
+    # Verify warning is printed when force=True
+    validate_queue_limits(cfg, force=True)
     captured = capsys.readouterr()
     assert "do not match any execution sub-queues for routing queue 'prod'" in captured.err
     

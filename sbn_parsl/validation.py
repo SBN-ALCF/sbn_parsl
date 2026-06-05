@@ -59,7 +59,7 @@ def check_queue_bounds(nodes: int, walltime_str: str, q_name: str, q_limits: Dic
     return True, ""
 
 
-def validate_queue_limits(cfg) -> None:
+def validate_queue_limits(cfg, force: bool = False) -> None:
     """
     Main entry point for queue resource validation.
     Checks user-requested queue, node count, and walltime against site TOML rules.
@@ -99,19 +99,34 @@ def validate_queue_limits(cfg) -> None:
                     sub_queue_results[sub_q_name] = err_msg
 
         if not valid_route_found:
-            print("=" * 60, file=sys.stderr)
-            print(f"WARNING: Requested resources (nodes={nodes}, walltime={walltime_str})", file=sys.stderr)
-            print(f"do not match any execution sub-queues for routing queue '{requested_queue}'.", file=sys.stderr)
-            print("Job routing failures:", file=sys.stderr)
-            for sub_q_name, err in sub_queue_results.items():
-                print(f"  - {sub_q_name}: {err}", file=sys.stderr)
-            print("This job may be immediately rejected by the site scheduler.", file=sys.stderr)
-            print("=" * 60, file=sys.stderr)
+            failures_str = "\n".join(f"  - {sub_q_name}: {err}" for sub_q_name, err in sub_queue_results.items())
+            if force:
+                print("=" * 60, file=sys.stderr)
+                print(f"WARNING: Requested resources (nodes={nodes}, walltime={walltime_str})", file=sys.stderr)
+                print(f"do not match any execution sub-queues for routing queue '{requested_queue}'.", file=sys.stderr)
+                print("Job routing failures:", file=sys.stderr)
+                for sub_q_name, err in sub_queue_results.items():
+                    print(f"  - {sub_q_name}: {err}", file=sys.stderr)
+                print("This job may be immediately rejected by the site scheduler.", file=sys.stderr)
+                print("=" * 60, file=sys.stderr)
+            else:
+                raise ValueError(
+                    f"Requested resources (nodes={nodes}, walltime={walltime_str}) "
+                    f"do not match any execution sub-queues for routing queue '{requested_queue}'.\n"
+                    f"Job routing failures:\n{failures_str}\n"
+                    "This job violates site queue policies and may fail to run. Use --force to bypass this check."
+                )
     else:
         is_valid, err_msg = check_queue_bounds(nodes, walltime_str, requested_queue, q_limits)
         if not is_valid:
-            print("=" * 60, file=sys.stderr)
-            print(f"WARNING: Job queue validation failed for queue '{requested_queue}':", file=sys.stderr)
-            print(f"  - {err_msg}", file=sys.stderr)
-            print("This job violates site queue policies and may fail to run.", file=sys.stderr)
-            print("=" * 60, file=sys.stderr)
+            if force:
+                print("=" * 60, file=sys.stderr)
+                print(f"WARNING: Job queue validation failed for queue '{requested_queue}':", file=sys.stderr)
+                print(f"  - {err_msg}", file=sys.stderr)
+                print("This job violates site queue policies and may fail to run.", file=sys.stderr)
+                print("=" * 60, file=sys.stderr)
+            else:
+                raise ValueError(
+                    f"Job queue validation failed for queue '{requested_queue}': {err_msg}.\n"
+                    "This job violates site queue policies and may fail to run. Use --force to bypass this check."
+                )

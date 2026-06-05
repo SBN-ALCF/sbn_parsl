@@ -139,6 +139,7 @@ def entry_point(argv, wfe_class):
         site_name=args.site,
         job_overrides=job_overrides,
         run_overrides=run_overrides,
+        force=args.force,
     )
 
     # Set runinfo dir early for validation
@@ -149,7 +150,7 @@ def entry_point(argv, wfe_class):
     config_file = runinfo_dir / "config.toml"
     if config_file.exists() and not args.force and not args.dry_run:
         # Check compatibility
-        existing_cfg = Config.load(config_file, site_name=cfg.site.name)
+        existing_cfg = Config.load(config_file, site_name=cfg.site.name, validate=False)
         science_hash = cfg.get_science_hash()
         if science_hash != existing_cfg.get_science_hash():
             print(
