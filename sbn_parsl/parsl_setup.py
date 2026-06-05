@@ -123,6 +123,35 @@ def create_provider_by_hostname(cfg: Config, local: bool = False):
         daos_cmd = "&&".join(daos_cmds) + "&&"
     cwd_cmd = f"{daos_cmd}mkdir -p {rundir_path}&&cd {rundir_path}"
 
+    monitor_cmd = ""
+    if cfg.site.monitor_cmd:
+        cmd_base = cfg.site.monitor_cmd.split()[0]
+        cmd_name = pathlib.Path(cmd_base).name
+        monitor_setup = (
+            'PARSL_RUN_NUM="" && '
+            'for run_dir in ../[0-9][0-9][0-9]; do '
+            'if [ -d "\\$run_dir" ]; then '
+            'PARSL_RUN_NUM=\\$(basename "\\$run_dir"); '
+            'fi; '
+            'done'
+        )
+        monitor_cmd = (
+            f'{monitor_setup} && '
+            f'if [ -n "\\$PARSL_RUN_NUM" ]; then mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"; fi && '
+            f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
+            f'if [ -n "\\$PBS_NUM_NODES" ]; then '
+            f'mpiexec -n "\\$PBS_NUM_NODES" --ppn 1 {cfg.site.monitor_cmd} > lar_mon_startup.log 2>&1 </dev/null & '
+            f'else '
+            f'{cfg.site.monitor_cmd} > lar_mon_startup.log 2>&1 </dev/null & '
+            f'fi; '
+            f'fi && '
+            f'if [ -n "\\$PARSL_RUN_NUM" ]; then cd ..; fi'
+        )
+
+    provider_worker_init = [cwd_cmd, worker_init, "export PATH=/opt/cray/pals/1.4/bin:${PATH}"]
+    if monitor_cmd:
+        provider_worker_init.append(monitor_cmd)
+
     if local:
         # user has allocated the job. Just launch
         return LocalProvider(
@@ -132,9 +161,7 @@ def create_provider_by_hostname(cfg: Config, local: bool = False):
             launcher=MpiExecLauncher(
                 bind_cmd="--cpu-bind", overrides=cfg.site.launcher_options
             ),
-            worker_init="&&".join(
-                [cwd_cmd, worker_init, "export PATH=/opt/cray/pals/1.4/bin:${PATH}"]
-            ),
+            worker_init="&&".join(provider_worker_init),
         )
 
     # let parsl allocate the job
@@ -151,9 +178,7 @@ def create_provider_by_hostname(cfg: Config, local: bool = False):
         launcher=MpiExecLauncher(
             bind_cmd="--cpu-bind", overrides=cfg.site.launcher_options
         ),
-        worker_init="&&".join(
-            [cwd_cmd, worker_init, "export PATH=/opt/cray/pals/1.4/bin:${PATH}"]
-        ),
+        worker_init="&&".join(provider_worker_init),
     )
 
 
@@ -191,26 +216,6 @@ def create_executor_by_hostname(cfg: Config, provider):
             )
         init_cmd += "\n" + "\n".join(tar_cmds)
 
-    if cfg.site.monitor_cmd:
-        cmd_base = cfg.site.monitor_cmd.split()[0]
-        cmd_name = pathlib.Path(cmd_base).name
-        monitor_setup = (
-            'PARSL_RUN_NUM="" && '
-            'for run_dir in ../[0-9][0-9][0-9]; do '
-            'if [ -d "\\$run_dir" ]; then '
-            'PARSL_RUN_NUM=\\$(basename "\\$run_dir"); '
-            'fi; '
-            'done'
-        )
-        monitor_cmd = (
-            f'{monitor_setup} && '
-            f'if [ -n "\\$PARSL_RUN_NUM" ]; then mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"; fi && '
-            f'if ! pgrep -f "{cmd_name}" >/dev/null 2>&1; then '
-            f'{cfg.site.monitor_cmd} >/dev/null 2>&1 </dev/null & '
-            f'fi && '
-            f'if [ -n "\\$PARSL_RUN_NUM" ]; then cd ..; fi'
-        )
-        init_cmd += "\n" + monitor_cmd
 
     exec_kwargs = {
         "label": "htex",

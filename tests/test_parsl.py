@@ -473,7 +473,7 @@ def test_monitor_cmd_config():
 
 
 def test_worker_init_monitor_cmd():
-    from sbn_parsl.parsl_setup import _worker_init, create_executor_by_hostname
+    from sbn_parsl.parsl_setup import _worker_init, create_executor_by_hostname, create_provider_by_hostname
     from unittest.mock import patch
 
     cfg = Config(
@@ -489,20 +489,28 @@ def test_worker_init_monitor_cmd():
         run=RunConfig(nsubruns=1, output="test_output")
     )
 
+    # 1. Verify standard worker init (which is for environment activation, mps, etc.)
+    # does NOT contain the monitoring script itself
     worker_init_str = _worker_init(cfg, mps=False)
     assert 'pgrep -f "lar_mon.sh"' not in worker_init_str
-    assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl &' not in worker_init_str
 
+    # 2. Verify provider's worker_init contains the decoupled monitor command
+    provider = create_provider_by_hostname(cfg, local=True)
+    p_worker_init = provider.worker_init
+    assert 'mkdir -p test_output/runinfo/cmd&&cd test_output/runinfo/cmd' in p_worker_init
+    assert 'pgrep -f "lar_mon.sh"' in p_worker_init
+    assert 'lar_mon_startup.log' in p_worker_init
+    assert 'PARSL_RUN_NUM=""' in p_worker_init
+    assert 'mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"' in p_worker_init
+    assert 'cd ..' in p_worker_init
+
+    # 3. Verify executor's launch_cmd does NOT contain the monitoring command anymore
     with patch('sbn_parsl.parsl_setup.address_by_interface', return_value='127.0.0.1'):
         executor = create_executor_by_hostname(cfg, None)
 
     launch_cmd = executor.launch_cmd
+    assert 'pgrep -f "lar_mon.sh"' not in launch_cmd
     assert 'mkdir -p test_output/runinfo/cmd && cd test_output/runinfo/cmd' in launch_cmd
-    assert 'pgrep -f "lar_mon.sh"' in launch_cmd
-    assert '/path/to/lar_mon.sh -i 10 -o node_mon_$(hostname).jsonl >/dev/null 2>&1 </dev/null &' in launch_cmd
-    assert 'PARSL_RUN_NUM=""' in launch_cmd
-    assert 'mkdir -p "\\$PARSL_RUN_NUM" && cd "\\$PARSL_RUN_NUM"' in launch_cmd
-    assert 'cd ..' in launch_cmd
 
 
 def test_entry_point_file_cache_missing_error(temp_db_dir, capsys):
