@@ -10,6 +10,15 @@ pbs_filesystems = "home:flare"
 worker_init = [
     "export TMPDIR=/tmp/",
 ]
+# monitor_cmd = "/home/twester/sbn_parsl_v01/tools/lar_mon.sh --interval 30 -o 'node_mon_$(hostname).jsonl'"
+
+[app.larsoft]
+container_path = "/lus/flare/projects/neutrinoGPU/containers/slf7.sif"
+larsoft_top = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft"
+simulation_inputs = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
+
+[app.larsoft.metadata]
+exe = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/tools/sbnpoms_metadata_injector_data.sh"
 
 [site.queues.debug]
 nodes_min = 1
@@ -44,12 +53,3 @@ nodes_min = 1920
 nodes_max = 10624
 walltime_min = "00:05:00"
 walltime_max = "24:00:00"
-
-
-[app.larsoft]
-container_path = "/lus/flare/projects/neutrinoGPU/containers/slf7.sif"
-larsoft_top = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft"
-simulation_inputs = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
-
-[app.larsoft.metadata]
-exe = "/lus/flare/projects/neutrinoGPU/scisoft/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh"

@@ -62,7 +62,7 @@ function find_fcl() {{
     fi
 
     # relative path or filename -- look up in FHICL_FILE_PATH
-    echo $(IFS=:; find $FHICL_FILE_PATH -name $(basename "${{1}}") | head -n 1)
+    echo $(IFS=:; find $FHICL_FILE_PATH -name $(basename "${{1}}") -print -quit)
 }}
 """
 
