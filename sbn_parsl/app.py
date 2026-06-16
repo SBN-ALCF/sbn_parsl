@@ -6,7 +6,7 @@ from datetime import datetime
 
 import parsl
 
-from sbn_parsl.parsl_setup import create_parsl_config
+from sbn_parsl.parsl_setup import create_parsl_config, detect_active_env
 from sbn_parsl.dfk_hacks import apply_hacks
 from sbn_parsl.config import Config
 
@@ -67,14 +67,13 @@ def parse_arguments(argv):
 
 def print_config_summary(cfg: Config):
     """Print a clean and curated summary of the user's config instead of the verbose ParslConfig."""
-    from sbn_parsl.parsl_setup import detect_active_env
 
     print("=" * 60)
     print("             SBN Parsl Workflow Config Summary")
     print("=" * 60)
 
     # 1. Queue & Site Settings
-    print(f"Site & Job Settings:")
+    print("Site & Job Settings:")
     print(f"  Site Name:        {cfg.site.name}")
     print(f"  Allocation:       {cfg.job.allocation}")
     print(f"  Queue:            {cfg.job.queue}")
@@ -83,23 +82,23 @@ def print_config_summary(cfg: Config):
     print(f"  Retries:          {cfg.job.retries}")
 
     # 2. Run Settings
-    print(f"\nRun Settings:")
+    print("\nRun Settings:")
     print(f"  Output Directory: {cfg.run.output}")
     print(f"  Number of Subruns:{cfg.run.nsubruns}")
     print(f"  Require Success:  {cfg.run.require_success}")
 
     # 3. Environment & Virtual Env
-    print(f"\nPython Environment:")
+    print("\nPython Environment:")
     if cfg.site.virtual_env:
         print(f"  Configured Venv:  {cfg.site.virtual_env}")
     active_env = detect_active_env()
     if active_env:
         print(f"  Active Venv:      {active_env}")
     else:
-        print(f"  Active Venv:      None (using fallback)")
+        print("  Active Venv:      None (using fallback)")
 
     # 4. App & Workflow Settings
-    print(f"\nApp & Workflow Settings:")
+    print("\nApp & Workflow Settings:")
     if cfg.larsoft:
         print(f"  Experiment: {cfg.larsoft.experiment}")
         print(f"  Software:    {cfg.larsoft.software} {cfg.larsoft.version} {cfg.larsoft.qual}")
@@ -107,7 +106,7 @@ def print_config_summary(cfg: Config):
             print(f"  Custom Env File:    {cfg.larsoft.env_file}")
 
     if cfg.workflow.fcls:
-        print(f"  Workflow FCLs:")
+        print("  Workflow FCLs:")
         for name, fcl in cfg.workflow.fcls.items():
             print(f"    - {name}: {fcl}")
     print("=" * 60)
@@ -223,6 +222,12 @@ def entry_point(argv, wfe_class):
                 args.script_name
             ).resolve()  # Imperfect but follows previous logic
 
+            env_path = cfg.site.virtual_env or detect_active_env()
+            if env_path:
+                env_activation = f"source {env_path}/bin/activate"
+            else:
+                env_activation = ""
+
             template = LOCAL_TEMPLATE.format(
                 job_name=job_name,
                 workflow=workflow_path,
@@ -234,6 +239,7 @@ def entry_point(argv, wfe_class):
                 walltime=cfg.job.walltime,
                 nodes_per_block=cfg.job.nodes_per_block,
                 hostfile_cmd=hostfile_cmd,
+                env_activation=env_activation,
             )
 
             script = cmd_dir / job_name
@@ -287,8 +293,8 @@ JOBNAME={job_name}
 cat << EOL > cmd_$JOBNAME.sh
 export TMPDIR=/tmp/
 module load frameworks
-source ~/.venv/sbn/bin/activate
-export PATH=/opt/cray/pals/1.4/bin:${PATH}
+{env_activation}
+export PATH=/opt/cray/pals/1.4/bin:${{PATH}}
 
 python {workflow} {settings} --local -o {out_dir}
 EOL

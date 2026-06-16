@@ -517,3 +517,51 @@ batch_size = 64
         assert cfg_loaded.get_science_hash() == cfg.get_science_hash()
         assert cfg_loaded.spine.model_path == "/path/to/site/spine.pt"
         assert cfg_loaded.spine.batch_size == 64
+
+
+def test_local_qsub_submission_creates_correct_script(tmp_path_extended, mock_wfe):
+    wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
+    output_dir = tmp_path_extended / "output"
+    output_dir.mkdir()
+
+    real_path = pathlib.Path
+
+    def mock_path_side_effect(*args, **kwargs):
+        if args and isinstance(args[0], str) and args[0].endswith("config.py"):
+            return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
+        return real_path(*args, **kwargs)
+
+    with (
+        patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect),
+        patch("sbn_parsl.app.subprocess.run") as mock_run,
+        patch("sbn_parsl.app.detect_active_env", return_value="/my/fake/venv"),
+        patch("os.environ", {}),
+    ):
+        args = parse_arguments(
+            [
+                "prog",
+                str(wf_path),
+                "-o",
+                str(output_dir),
+                "--local",
+                "--site",
+                "polaris",
+            ]
+        )
+        entry_point(args, mock_wfe)
+
+        # Verify subprocess.run was called for qsub
+        assert mock_run.call_count == 1
+        qsub_cmd = mock_run.call_args[0][0]
+        assert qsub_cmd[0] == "qsub"
+        script_path = qsub_cmd[-1]
+
+        # Read the generated script
+        with open(script_path, "r") as f:
+            script_content = f.read()
+
+        # Verify environment activation and escaped PATH are present
+        assert "source /my/fake/venv/bin/activate" in script_content
+        assert "export PATH=/opt/cray/pals/1.4/bin:${PATH}" in script_content
+        assert "${{PATH}}" not in script_content
+

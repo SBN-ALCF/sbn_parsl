@@ -1,5 +1,4 @@
 import pytest
-import sys
 from unittest.mock import MagicMock
 from sbn_parsl.validation import (
     parse_walltime_to_seconds,
