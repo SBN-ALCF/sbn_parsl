@@ -179,9 +179,7 @@ def entry_point(argv, wfe_class):
             )
             return
 
-    # Save config for future resumes
-    if not args.dry_run:
-        cfg.save(config_file)
+
 
     # Handle max_futures logic
     if args.local:
@@ -268,6 +266,9 @@ def entry_point(argv, wfe_class):
             with open(script, "w") as f:
                 f.write(template)
 
+            if not args.dry_run:
+                cfg.save(config_file)
+
             subprocess.run(
                 ["qsub", "-A", cfg.job.allocation, "-q", cfg.job.queue, str(script)]
             )
@@ -281,6 +282,9 @@ def entry_point(argv, wfe_class):
         wfe = wfe_class(cfg)
         wfe.execute(cycle, dry_run=True)
         return
+
+    if not args.dry_run:
+        cfg.save(config_file)
 
     parsl_config = create_parsl_config(cfg, local=args.local)
     print_config_summary(cfg)
