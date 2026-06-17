@@ -162,7 +162,7 @@ def create_provider_by_hostname(cfg: Config, local: bool = False):
             init_blocks=1,
             max_blocks=1,
             launcher=MpiExecLauncher(
-                bind_cmd="--cpu-bind", overrides=cfg.site.launcher_options
+                bind_cmd="--cpu-bind", overrides="--ppn 1"
             ),
             worker_init="&&".join(provider_worker_init),
         )

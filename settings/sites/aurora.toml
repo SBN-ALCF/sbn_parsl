@@ -3,7 +3,7 @@ name = "aurora"
 cpus_per_node = 102
 cores_per_worker = 1
 scheduler_options = "#PBS -l filesystems=home:flare"
-launcher_options = "-n 1 --ppn 1 --depth=104 --cpu-bind depth"
+launcher_options = "--ppn 1 --depth=104 --cpu-bind depth"
 cpu_affinity = "none"
 available_accelerators = 102
 pbs_filesystems = "home:flare"
