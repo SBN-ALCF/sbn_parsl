@@ -6,7 +6,7 @@ from datetime import datetime
 
 import parsl
 
-from sbn_parsl.parsl_setup import create_parsl_config, detect_active_env
+from sbn_parsl.parsl_setup import create_parsl_config, detect_active_env, _worker_init
 from sbn_parsl.dfk_hacks import apply_hacks
 from sbn_parsl.config import Config
 
@@ -222,11 +222,7 @@ def entry_point(argv, wfe_class):
                 args.script_name
             ).resolve()  # Imperfect but follows previous logic
 
-            env_path = cfg.site.virtual_env or detect_active_env()
-            if env_path:
-                env_activation = f"source {env_path}/bin/activate"
-            else:
-                env_activation = ""
+            worker_init = "\n".join(_worker_init(cfg, mps=False).split("&&"))
 
             template = LOCAL_TEMPLATE.format(
                 job_name=job_name,
@@ -239,7 +235,7 @@ def entry_point(argv, wfe_class):
                 walltime=cfg.job.walltime,
                 nodes_per_block=cfg.job.nodes_per_block,
                 hostfile_cmd=hostfile_cmd,
-                env_activation=env_activation,
+                worker_init=worker_init,
             )
 
             script = cmd_dir / job_name
@@ -290,10 +286,8 @@ cd $OUTDIR
 {hostfile_cmd}
 
 JOBNAME={job_name}
-cat << EOL > cmd_$JOBNAME.sh
-export TMPDIR=/tmp/
-module load frameworks
-{env_activation}
+cat << 'EOL' > cmd_$JOBNAME.sh
+{worker_init}
 export PATH=/opt/cray/pals/1.4/bin:${{PATH}}
 
 python {workflow} {settings} --local -o {out_dir}

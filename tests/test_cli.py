@@ -534,7 +534,7 @@ def test_local_qsub_submission_creates_correct_script(tmp_path_extended, mock_wf
     with (
         patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect),
         patch("sbn_parsl.app.subprocess.run") as mock_run,
-        patch("sbn_parsl.app.detect_active_env", return_value="/my/fake/venv"),
+        patch("sbn_parsl.parsl_setup.detect_active_env", return_value="/my/fake/venv"),
         patch("os.environ", {}),
     ):
         args = parse_arguments(
@@ -562,6 +562,8 @@ def test_local_qsub_submission_creates_correct_script(tmp_path_extended, mock_wf
 
         # Verify environment activation and escaped PATH are present
         assert "source /my/fake/venv/bin/activate" in script_content
+        assert "export TMPDIR=/tmp/" in script_content
         assert "export PATH=/opt/cray/pals/1.4/bin:${PATH}" in script_content
         assert "${{PATH}}" not in script_content
+        assert "cat << 'EOL' > cmd_" in script_content
 
