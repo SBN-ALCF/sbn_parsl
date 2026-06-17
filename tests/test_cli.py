@@ -535,6 +535,7 @@ def test_local_qsub_submission_creates_correct_script(tmp_path_extended, mock_wf
         patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect),
         patch("sbn_parsl.app.subprocess.run") as mock_run,
         patch("sbn_parsl.parsl_setup.detect_active_env", return_value="/my/fake/venv"),
+        patch("sys.argv", ["/path/to/workflows/my_workflow.py"]),
         patch("os.environ", {}),
     ):
         args = parse_arguments(
@@ -566,4 +567,5 @@ def test_local_qsub_submission_creates_correct_script(tmp_path_extended, mock_wf
         assert "export PATH=/opt/cray/pals/1.4/bin:${PATH}" in script_content
         assert "${{PATH}}" not in script_content
         assert "cat << 'EOL' > cmd_" in script_content
+        assert "python /path/to/workflows/my_workflow.py" in script_content
 

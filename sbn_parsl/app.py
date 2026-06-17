@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 import argparse
 import pathlib
@@ -215,12 +216,8 @@ def entry_point(argv, wfe_class):
             submit_script_dir = cmd_dir / "submit_scripts"
             submit_script_dir.mkdir(parents=True, exist_ok=True)
 
-            # Reconstruct the workflow script path assuming script_name is the script
-            # In a real environment, this might be tricky if we don't pass the full path.
-            # We can use sys.argv[0] as a fallback if script_name isn't sufficient.
-            workflow_path = pathlib.Path(
-                args.script_name
-            ).resolve()  # Imperfect but follows previous logic
+            # Reconstruct the workflow script path using sys.argv[0]
+            workflow_path = pathlib.Path(sys.argv[0]).resolve()
 
             worker_init = "\n".join(_worker_init(cfg, mps=False).split("&&"))
 
