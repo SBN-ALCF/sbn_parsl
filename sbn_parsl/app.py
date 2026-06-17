@@ -221,6 +221,34 @@ def entry_point(argv, wfe_class):
 
             worker_init = "\n".join(_worker_init(cfg, mps=False).split("&&"))
 
+            extra_args = []
+            if args.allocation:
+                extra_args.append(f"-A {args.allocation}")
+            if args.queue:
+                extra_args.append(f"-q {args.queue}")
+            if args.walltime:
+                extra_args.append(f"-t {args.walltime}")
+            if args.nodes_per_block is not None:
+                extra_args.append(f"-n {args.nodes_per_block}")
+            if args.cpus_per_node is not None:
+                extra_args.append(f"--cpus-per-node {args.cpus_per_node}")
+            if args.cores_per_worker is not None:
+                extra_args.append(f"--cores-per-worker {args.cores_per_worker}")
+            if args.site:
+                extra_args.append(f"--site {args.site}")
+            if args.daos:
+                extra_args.append("--daos")
+            if args.runinfo:
+                extra_args.append(f"-r {pathlib.Path(args.runinfo).resolve()}")
+            if args.cycle is not None:
+                extra_args.append(f"-c {args.cycle}")
+            if args.nsubruns is not None:
+                extra_args.append(f"--nsubruns {args.nsubruns}")
+            if args.force:
+                extra_args.append("--force")
+
+            extra_args_str = "".join(f" {arg}" for arg in extra_args)
+
             template = LOCAL_TEMPLATE.format(
                 job_name=job_name,
                 workflow=workflow_path,
@@ -233,6 +261,7 @@ def entry_point(argv, wfe_class):
                 nodes_per_block=cfg.job.nodes_per_block,
                 hostfile_cmd=hostfile_cmd,
                 worker_init=worker_init,
+                extra_args=extra_args_str,
             )
 
             script = cmd_dir / job_name
@@ -287,7 +316,7 @@ cat << 'EOL' > cmd_$JOBNAME.sh
 {worker_init}
 export PATH=/opt/cray/pals/1.4/bin:${{PATH}}
 
-python {workflow} {settings} --local -o {out_dir}
+python {workflow} {settings} --local -o {out_dir}{extra_args}
 EOL
 chmod u+x cmd_$JOBNAME.sh
 
