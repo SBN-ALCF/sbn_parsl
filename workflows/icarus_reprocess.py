@@ -17,7 +17,7 @@ from sbn_parsl.workflow import (
 )
 from sbn_parsl.metadata import MetadataGenerator
 from sbn_parsl.components import RunContext, larsoft_runfunc, build_larsoft_cmd, output_filepath_generic
-from sbn_parsl.experiments.icarus import mc_runfunc_icarus, build_modify_fcl_cmd_icarus
+from sbn_parsl.experiments.icarus import data_runfunc_icarus, build_modify_fcl_cmd_icarus
 from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
 from sbn_parsl.app import entry_point
 from sbn_parsl.config import Config
@@ -85,14 +85,14 @@ class OverlayExecutor(LArSoftExecutor):
                                               meta=self.meta)
 
         self._runfunc = functools.partial(
-            mc_runfunc_icarus,
+            data_runfunc_icarus,
             template=CMD_TEMPLATE_CONTAINER,
             meta=self.meta,
             executor=self,
             last_file=None,
         )
         self._runfunc_no_meta = functools.partial(
-            mc_runfunc_icarus,
+            data_runfunc_icarus,
             template=CMD_TEMPLATE_CONTAINER,
             meta=None,
             executor=self,

@@ -4,13 +4,14 @@ cpus_per_node = 102
 cores_per_worker = 1
 scheduler_options = "#PBS -l filesystems=home:flare"
 launcher_options = "--ppn 1 --depth=104 --cpu-bind depth"
-cpu_affinity = "none"
+cpu_affinity = "aurora"
 available_accelerators = 102
 pbs_filesystems = "home:flare"
+max_futures = 100000
 worker_init = [
     "export TMPDIR=/tmp/",
 ]
-# monitor_cmd = "/home/twester/sbn_parsl_v01/tools/lar_mon.sh --interval 30 -o 'node_mon_$(hostname).jsonl'"
+monitor_cmd = "/home/twester/sbn_parsl_v01/tools/lar_mon.sh --interval 30 -o 'node_mon_$(hostname).jsonl'"
 
 [app.larsoft]
 container_path = "/lus/flare/projects/neutrinoGPU/containers/slf7.sif"

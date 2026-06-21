@@ -1,6 +1,7 @@
 [run]
 nsubruns = 1
 files_per_subrun = 1
+require_success = false
 
 [workflow]
 sbnnusyst_env = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/sbnnusyst.env"
@@ -28,9 +29,10 @@ icarus_data = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/icarus_data-10.0
 queue = "debug"
 walltime = "1:00:00"
 nodes_per_block = 1
-max_workers_per_node = 100
+max_workers_per_node = 102
 allocation = "neutrinoGPU::ICARUSRun4_Summer2025_MC"
 retries = 0
+initialize_logging = false
 
 [workflow.fcls]
 stage1 = "stage1_run2_larcv_icarus_overlay.fcl"

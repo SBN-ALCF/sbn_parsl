@@ -39,7 +39,7 @@ class CAFFromGenExecutor(LArSoftExecutor):
             meta=self.meta,
         )
 
-    def _setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
+    def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
         s = Stage(DefaultStageTypes.CAF)
         s.runfunc = self.runfunc
@@ -62,14 +62,14 @@ class CAFFromGenExecutor(LArSoftExecutor):
             s_g4.add_parents(s_gen)
 
             s_gen.combine = True
-            s_reco2.combine = True
+            # s_reco2.combine = True
 
             # each workflow will have its own directory
             s_reco2.run_dir = self.get_run_dir(inst)
 
         return workflow
 
-    def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
+    def _setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
         s = Stage(DefaultStageTypes.GEN)
         s.runfunc = self.runfunc
