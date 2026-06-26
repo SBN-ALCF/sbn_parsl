@@ -1,153 +1,335 @@
 import os
+import sys
 import subprocess
 import argparse
 import pathlib
-import json
 from datetime import datetime
 
 import parsl
 
-from sbn_parsl.workflow import WorkflowExecutor
-from sbn_parsl.utils import create_default_useropts, create_parsl_config
+from sbn_parsl.parsl_setup import create_parsl_config, detect_active_env, _worker_init
 from sbn_parsl.dfk_hacks import apply_hacks
+from sbn_parsl.config import Config
+
+
+def parse_arguments(argv):
+    """Parse command line arguments for sbn_parsl workflows."""
+    parser = argparse.ArgumentParser(prog="sbn_parsl")
+    parser.add_argument("settings", help="Path to TOML settings file")
+
+    # Job/Site overrides
+    parser.add_argument("-A", "--allocation", help="Allocation to use")
+    parser.add_argument("-q", "--queue", help="Queue to use")
+    parser.add_argument("-t", "--walltime", help="Walltime for the job")
+    parser.add_argument(
+        "-n", "--nodes", type=int, dest="nodes_per_block", help="Number of nodes"
+    )
+    parser.add_argument("--cpus-per-node", type=int, help="CPUs per node")
+    parser.add_argument("--cores-per-worker", type=int, help="Cores per worker")
+    parser.add_argument("--site", help="Override site detection (e.g. polaris, aurora)")
+
+    parser.add_argument(
+        "--daos", action="store_true", help="Use DAOS for output storage", default=False
+    )
+    parser.add_argument(
+        "-o", "--output-dir", dest="output", help="Directory for outputs", required=True
+    )
+    parser.add_argument(
+        "-r", "--runinfo-dir", dest="runinfo", help="Directory for workflow outputs"
+    )
+    parser.add_argument(
+        "-l",
+        "--local",
+        action="store_true",
+        help="Use local provider instead of PBS",
+        default=False,
+    )
+    parser.add_argument(
+        "-c", "--cycle", type=int, help="Cycle workflow submission count"
+    )
+    parser.add_argument("--nsubruns", type=int, help="Number of subruns to execute")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force run even if config differs from existing run",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print commands without executing",
+        default=False,
+    )
+
+    # We add an attribute for the script name so entry_point can use it
+    args = parser.parse_args(argv[1:])
+    args.script_name = pathlib.Path(argv[0]).stem if len(argv) > 0 else "sbn_parsl"
+    return args
+
+
+def print_config_summary(cfg: Config):
+    """Print a clean and curated summary of the user's config instead of the verbose ParslConfig."""
+
+    print("=" * 60)
+    print("             SBN Parsl Workflow Config Summary")
+    print("=" * 60)
+
+    # 1. Queue & Site Settings
+    print("Site & Job Settings:")
+    print(f"  Site Name:        {cfg.site.name}")
+    print(f"  Allocation:       {cfg.job.allocation}")
+    print(f"  Queue:            {cfg.job.queue}")
+    print(f"  Nodes Per Block:  {cfg.job.nodes_per_block}")
+    print(f"  Walltime:         {cfg.job.walltime}")
+    print(f"  Retries:          {cfg.job.retries}")
+
+    # 2. Run Settings
+    print("\nRun Settings:")
+    print(f"  Output Directory: {cfg.run.output}")
+    print(f"  Number of Subruns:{cfg.run.nsubruns}")
+    print(f"  Require Success:  {cfg.run.require_success}")
+
+    # 3. Environment & Virtual Env
+    print("\nPython Environment:")
+    if cfg.site.virtual_env:
+        print(f"  Configured Venv:  {cfg.site.virtual_env}")
+    active_env = detect_active_env()
+    if active_env:
+        print(f"  Active Venv:      {active_env}")
+    else:
+        print("  Active Venv:      None (using fallback)")
+
+    # 4. App & Workflow Settings
+    print("\nApp & Workflow Settings:")
+    if cfg.larsoft:
+        print(f"  Experiment: {cfg.larsoft.experiment}")
+        print(f"  Software:    {cfg.larsoft.software} {cfg.larsoft.version} {cfg.larsoft.qual}")
+        if cfg.larsoft.env_file:
+            print(f"  Custom Env File:    {cfg.larsoft.env_file}")
+
+    if cfg.workflow.fcls:
+        print("  Workflow FCLs:")
+        for name, fcl in cfg.workflow.fcls.items():
+            print(f"    - {name}: {fcl}")
+    print("=" * 60)
 
 
 def entry_point(argv, wfe_class):
-    """Provide common options & setup for sbn_parsl workflows."""
-    parser = argparse.ArgumentParser(prog='sbn_parsl')
-    parser.add_argument('settings', help='Path to JSON settings file')
-    parser.add_argument('--daos', action='store_true', help='Use DAOS for output storage (requires DAOS client setup on compute and login nodes)', default=False)
-    parser.add_argument('-o', '--output-dir', help='Directory for outputs')
-    parser.add_argument('-r', '--runinfo-dir', help='Directory for workflow outputs')
-    parser.add_argument('-l', '--local', action='store_true', help='Use local provider instead of PBS for running within an existing node reservation. NOTE: Reduces worker node count by 1 for multi-node jobs') 
-    parser.add_argument('-c', '--cycle', help='Cycle workflow submission such that this number of workflows must finish completely before more are submitted. The optimal choice is usually the total number of workers (nodes * CPUs/node) divided by the number of tasks started by a single workflow')
-    parser.set_defaults(local=False)
-    args = parser.parse_args()
+    """Provide common setup and execution for sbn_parsl workflows using parsed args."""
+    if isinstance(argv, list):
+        args = parse_arguments(argv)
+    else:
+        args = argv
 
-    user_opts = create_default_useropts()
+    # Load configuration with CLI overrides
+    job_overrides = {
+        "allocation": args.allocation,
+        "queue": args.queue,
+        "walltime": args.walltime,
+        "nodes_per_block": args.nodes_per_block,
+    }
+    run_overrides = {
+        "output": args.output,
+        "runinfo": args.runinfo,
+        "nsubruns": args.nsubruns,
+        "daos": args.daos,
+    }
 
-    # update user_opts from command line options & settings file
-    # settings dictionary is also passed to WorkflowExecutor below
-    with open(args.settings, 'r') as f:
-        settings = json.load(f)
+    cfg = Config.load(
+        pathlib.Path(args.settings),
+        site_name=args.site,
+        job_overrides=job_overrides,
+        run_overrides=run_overrides,
+        force=args.force,
+    )
 
-    # If using daos, -r flag must be set:
-    if args.runinfo_dir is None and args.daos is True:
-        raise Exception("-r flag must be set when using daos")
-
-    # Set name of DAOS pool and container
-    if args.daos:
-        user_opts.update({'daos_pool':'gpu_hack',
-                            'daos_cont':'sbnd'})
-        settings['run']['daos'] = True
-    # Set runinfo dir with the -r flag; if not set, use the -o flag
-    if args.runinfo_dir is not None:
-        settings['run']['runinfo'] = args.runinfo_dir
-    elif args.output_dir is not None:
-        settings['run']['runinfo'] = args.output_dir
-
-    if args.output_dir is not None:
-        settings['run']['output'] = args.output_dir
-
-    # runinfo_dir should always be a path on the lustre filesystem, even if outputs are going to DAOS
-    runinfo_dir = pathlib.Path(settings['run']['runinfo']) / 'runinfo'
-    user_opts['run_dir'] = str(runinfo_dir)
+    # Set runinfo dir early for validation
+    runinfo_base = pathlib.Path(cfg.run.runinfo or cfg.run.output)
+    runinfo_dir = runinfo_base / "runinfo"
     runinfo_dir.mkdir(parents=True, exist_ok=True)
 
-    cycle = -1
-    if args.cycle is not None:
-        cycle = int(args.cycle)
+    config_file = runinfo_dir / "config.toml"
+    if config_file.exists() and not args.force and not args.dry_run:
+        # Check compatibility
+        existing_cfg = Config.load(config_file, site_name=cfg.site.name, validate=False)
+        science_hash = cfg.get_science_hash()
+        if science_hash != existing_cfg.get_science_hash():
+            print(
+                f"FATAL: Science identity mismatch in output directory {cfg.run.output}"
+            )
+            print(f"Current Hash:  {science_hash}")
+            print(f"Existing Hash: {existing_cfg.get_science_hash()}")
+            print("To resume, use the same LArSoft version and FCLs, or use --force.")
+            return
 
-    user_opts.update(settings['queue'])
+        # Check if the expected file cache database exists
+        db_file = runinfo_dir / "cmd" / f"file_cache_{science_hash}.db"
+        if not db_file.exists():
+            print(
+                f"FATAL: The configuration file {config_file} was found, "
+                f"but the expected file cache database {db_file} is missing."
+            )
+            print(
+                "If you have recently upgraded the sbn_parsl package, the science hash "
+                "format may have changed, causing a mismatch with the old database filename.\n\n"
+                "To resolve this, you can:\n"
+                "  1. Clear out the old config by deleting or renaming the runinfo/ directory.\n"
+                "  2. Run with --force to overwrite and start a new cache.\n"
+                "  3. Manually rename the old file_cache_*.db file in runinfo/cmd/ to:\n"
+                f"     {db_file.name}"
+            )
+            return
+
+
+
+    # Handle max_futures logic
+    if args.local:
+        cfg.site.max_futures = -1
+
+    # If using daos, runinfo must be set
+    if cfg.run.runinfo is None and cfg.run.daos is True:
+        # Fallback to output if not provided, though old code required it
+        cfg.run.runinfo = cfg.run.output
+
+    cycle = args.cycle if args.cycle is not None else -1
+
+    # Update site-specific dynamic values if provided
+    if args.cpus_per_node:
+        cfg.site.cpus_per_node = args.cpus_per_node
+    if args.cores_per_worker:
+        cfg.site.cores_per_worker = args.cores_per_worker
 
     # if we are local, submit via qsub unless we are already on a compute node
-    if args.local:
-        if os.environ.get('PBS_NODEFILE') is None:
+    if args.local and not args.dry_run:
+        if os.environ.get("PBS_NODEFILE") is None:
             # qsub & return
-            cmd_dir = runinfo_dir / 'cmd'
-            job_name = f'parsl.{pathlib.Path(argv[0]).stem}.{datetime.now().strftime("%Y%m%d%H%M%S")}'
+            cmd_dir = runinfo_dir / "cmd"
+            job_name = (
+                f"parsl.{args.script_name}.{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            )
 
-            hostfile_cmd = ''
-            if user_opts['nodes_per_block'] > 1:
+            hostfile_cmd = ""
+            if cfg.job.nodes_per_block > 1:
                 hostfile_cmd = HOSTFILE_CMD_EXCLUDE_SELF
-            
-            submit_script_dir = cmd_dir / 'submit_scripts'
+
+            submit_script_dir = cmd_dir / "submit_scripts"
             submit_script_dir.mkdir(parents=True, exist_ok=True)
+
+            # Reconstruct the workflow script path using sys.argv[0]
+            workflow_path = pathlib.Path(sys.argv[0]).resolve()
+
+            worker_init = "\n".join(_worker_init(cfg, mps=False).split("&&"))
+
+            extra_args = []
+            if args.allocation:
+                extra_args.append(f"-A {args.allocation}")
+            if args.queue:
+                extra_args.append(f"-q {args.queue}")
+            if args.walltime:
+                extra_args.append(f"-t {args.walltime}")
+            if args.nodes_per_block is not None:
+                extra_args.append(f"-n {args.nodes_per_block}")
+            if args.cpus_per_node is not None:
+                extra_args.append(f"--cpus-per-node {args.cpus_per_node}")
+            if args.cores_per_worker is not None:
+                extra_args.append(f"--cores-per-worker {args.cores_per_worker}")
+            if args.site:
+                extra_args.append(f"--site {args.site}")
+            if args.daos:
+                extra_args.append("--daos")
+            if args.runinfo:
+                extra_args.append(f"-r {pathlib.Path(args.runinfo).resolve()}")
+            if args.cycle is not None:
+                extra_args.append(f"-c {args.cycle}")
+            if args.nsubruns is not None:
+                extra_args.append(f"--nsubruns {args.nsubruns}")
+            if args.force:
+                extra_args.append("--force")
+
+            extra_args_str = "".join(f" {arg}" for arg in extra_args)
 
             template = LOCAL_TEMPLATE.format(
                 job_name=job_name,
-                workflow=pathlib.Path(argv[0]).resolve(),
-                out_dir=settings['run']['output'],
+                workflow=workflow_path,
+                out_dir=cfg.run.output,
                 cmd_dir=str(cmd_dir),
                 settings=pathlib.Path(args.settings).resolve(),
-                stdout=str(submit_script_dir / f'{job_name}.stdout'),
-                stderr=str(submit_script_dir / f'{job_name}.stderr'),
-                walltime=user_opts['walltime'],
-                nodes_per_block=user_opts['nodes_per_block'],
-                hostfile_cmd=hostfile_cmd
+                stdout=str(submit_script_dir / f"{job_name}.stdout"),
+                stderr=str(submit_script_dir / f"{job_name}.stderr"),
+                walltime=cfg.job.walltime,
+                nodes_per_block=cfg.job.nodes_per_block,
+                hostfile_cmd=hostfile_cmd,
+                worker_init=worker_init,
+                extra_args=extra_args_str,
             )
 
             script = cmd_dir / job_name
-            with open(script, 'w') as f:
+            with open(script, "w") as f:
                 f.write(template)
 
-            subprocess.run([
-                'qsub', '-A', user_opts['allocation'],
-                '-q', user_opts['queue'], str(script)
-            ])
+            if not args.dry_run:
+                cfg.save(config_file)
+
+            subprocess.run(
+                ["qsub", "-A", cfg.job.allocation, "-q", cfg.job.queue, str(script)]
+            )
             return
         else:
             # subtract 1 from node count if node count > 1 so that the driver program gets its own node
-            if user_opts['nodes_per_block'] > 1:
-                user_opts['nodes_per_block'] -= 1
+            if cfg.job.nodes_per_block > 1:
+                cfg.job.nodes_per_block -= 1
 
+    if args.dry_run:
+        wfe = wfe_class(cfg)
+        wfe.execute(cycle, dry_run=True)
+        return
 
-    parsl_config = create_parsl_config(user_opts, local=args.local, daos=args.daos)
-    print(parsl_config)
+    if not args.dry_run:
+        cfg.save(config_file)
+
+    parsl_config = create_parsl_config(cfg, local=args.local)
+    print_config_summary(cfg)
     parsl.clear()
 
     with parsl.load(parsl_config) as dfk:
         apply_hacks(dfk)
-        wfe = wfe_class(settings)
+        wfe = wfe_class(cfg)
         wfe.execute(cycle)
 
 
 # when submitting with local provider, we call qsub directly on this script
-LOCAL_TEMPLATE=f'''#!/bin/bash
+LOCAL_TEMPLATE = r"""#!/bin/bash
 
 #PBS -S /bin/bash
-#PBS -N {{job_name}}
+#PBS -N {job_name}
 #PBS -m n
-#PBS -l walltime={{walltime}}
-#PBS -l select={{nodes_per_block}}
-#PBS -o {{stdout}}
-#PBS -e {{stderr}}
+#PBS -l walltime={walltime}
+#PBS -l select={nodes_per_block}
+#PBS -o {stdout}
+#PBS -e {stderr}
 #PBS -l filesystems=home:flare
 
-OUTDIR={{cmd_dir}}
+OUTDIR={cmd_dir}
 mkdir -p $OUTDIR
 cd $OUTDIR
 
 # exclude this node (where the driver program runs) from the available nodes
-{{hostfile_cmd}}
+{hostfile_cmd}
 
-JOBNAME={{job_name}}
-cat << EOL > cmd_$JOBNAME.sh
-export TMPDIR=/tmp/
-module load frameworks
-source ~/.venv/sbn/bin/activate
-export PATH=/opt/cray/pals/1.4/bin:\${{{{PATH}}}}
+JOBNAME={job_name}
+cat << 'EOL' > cmd_$JOBNAME.sh
+{worker_init}
+export PATH=/opt/cray/pals/1.4/bin:${{PATH}}
 
-python {{workflow}} {{settings}} --local -o {{out_dir}}
+python {workflow} {settings} --local -o {out_dir}{extra_args}
 EOL
 chmod u+x cmd_$JOBNAME.sh
 
 # line buffer to get logs faster
-./cmd_$JOBNAME.sh > {{cmd_dir}}/sbn_parsl.log
+./cmd_$JOBNAME.sh
 
 [[ "1" == "1" ]] && echo "All done"
-'''
+"""
 
-HOSTFILE_CMD_EXCLUDE_SELF = r'''sort -u $PBS_NODEFILE | grep -v $(hostname) > $OUTDIR/hostfile.noexec
+HOSTFILE_CMD_EXCLUDE_SELF = r"""sort -u $PBS_NODEFILE | grep -v $(hostname) > $OUTDIR/hostfile.noexec
 export PBS_NODEFILE=$OUTDIR/hostfile.noexec
-'''
+"""

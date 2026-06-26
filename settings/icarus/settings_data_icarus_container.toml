@@ -1,0 +1,28 @@
+[run]
+nsubruns = 1
+files_per_subrun = 1
+
+[workflow]
+
+[app.larsoft]
+software = "icaruscode"
+version = "v10_06_00_01p05"
+qual = "e26:prof"
+nevts = -1
+experiment = "icarus"
+lar_args = ""
+
+[job]
+queue = "debug"
+walltime = "1:00:00"
+nodes_per_block = 1
+allocation = "14186"
+retries = 0
+
+[workflow.fcls]
+stage0 = "stage0_run2_wcdnn_icarus.fcl"
+stage1 = "stage1_run2_icarus.fcl"
+caf = "cafmakerjob_icarus_data.fcl"
+
+[app.larsoft.metadata]
+mdprojectversion = "v10_06_00_01p05"

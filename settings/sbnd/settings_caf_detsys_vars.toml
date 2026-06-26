@@ -1,0 +1,32 @@
+[run]
+nsubruns = 120000
+files_per_subrun = 10
+
+[workflow]
+subruns_per_caf = 10
+
+[app.larsoft]
+software = "sbndcode"
+version = "v10_06_00_10"
+qual = "e26:prof"
+nevts = 50
+experiment = "sbnd"
+lar_args = ""
+
+[job]
+queue = "prod"
+walltime = "6:00:00"
+nodes_per_block = 384
+allocation = "neutrinoGPU::SBNDDetVarReprocess_Fall2025"
+retries = 0
+
+[workflow.fcls]
+cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rockbox_sbnd.fcl", detsim = "standard_detsim_sbnd.fcl", reco1 = "standard_reco1_sbnd.fcl", reco2 = "standard_reco2_sbnd.fcl", caf = "cafmakerjob_sbnd_sce.fcl" }
+PMTGainFluct = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sbnd_PMTGainFluct.fcl" }
+PMTHighNoise = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sbnd_PMTHighNoise.fcl" }
+PMTLowEff = { scrub = "scrub_PDS_detsim_reco1.fcl", detsim = "standard_detsim_sbnd_PMTLowEff.fcl" }
+0xSCE = { scrub = "scrub_wcls_detsim_reco1.fcl", detsim = "detsim_enable_zerospacecharge_sbnd.fcl" }
+2xSCE = { scrub = "scrub_wcls_detsim_reco1.fcl", detsim = "detsim_enable_doublespacecharge_sbnd.fcl" }
+
+[app.larsoft.metadata]
+mdprojectversion = "v10_06_00_09"

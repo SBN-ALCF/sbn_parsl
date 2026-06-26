@@ -1,0 +1,27 @@
+[run]
+nsubruns = 102400
+
+[workflow]
+subruns_per_caf = 1
+full_keep_fraction = 0.05
+
+[app.larsoft]
+software = "sbndcode"
+version = "v10_14_02_04"
+qual = "e26:prof"
+nevts = 100
+experiment = "sbnd"
+lar_args = ""
+
+[job]
+queue = "gpu_hack_large"
+walltime = "02:30:00"
+nodes_per_block = 1024
+allocation = "gpu_hack"
+retries = 0
+
+[workflow.fcls]
+gen = "prodgenie_corsika_proton_rockbox0p1_sbnd.fcl"
+
+[app.larsoft.metadata]
+mdprojectversion = "v10_14_02_04"

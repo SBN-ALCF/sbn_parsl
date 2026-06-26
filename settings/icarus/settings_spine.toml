@@ -1,0 +1,9 @@
+[run]
+nsubruns = 1
+
+[workflow]
+
+[job]
+queue = "debug"
+walltime = "1:00:00"
+nodes_per_block = 1

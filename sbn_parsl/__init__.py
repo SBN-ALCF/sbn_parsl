@@ -1,7 +1,11 @@
 import os
 
-from sbn_parsl.metadata import MetadataGenerator
-from sbn_parsl.workflow import StageType, Stage, Workflow
+from sbn_parsl.metadata import MetadataGenerator as MetadataGenerator
+from sbn_parsl.workflow import (
+    StageType as StageType,
+    Stage as Stage,
+    Workflow as Workflow,
+)
 
 
 from parsl.data_provider.files import File
@@ -21,6 +25,5 @@ def id_for_memo_File(f, output_ref=False):
             stat_result = os.stat(filename)
 
             return [f.url, stat_result.st_size, stat_result.st_mtime]
-        except:
+        except OSError:
             return [f.url, 0, 0]
-

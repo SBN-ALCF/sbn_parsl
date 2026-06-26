@@ -1,0 +1,24 @@
+[run]
+nsubruns = 1
+files_per_subrun = 1
+
+[workflow]
+
+[app.larsoft]
+software = "icaruscode"
+version = "10_06_00_01"
+nevts = -1
+experiment = "icarus"
+lar_args = ""
+
+[job]
+queue = "gpu_hack_sm"
+walltime = "1:00:00"
+nodes_per_block = 1
+allocation = "gpu_hack"
+retries = 0
+
+[workflow.fcls]
+reco1 = "/home/twester/scratch/stage0_run2_wcdnn_icarus.fcl"
+reco2 = "stage1_run2_icarus.fcl"
+caf = "cafmakerjob_icarus_data.fcl"

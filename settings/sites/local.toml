@@ -1,0 +1,10 @@
+[site]
+name = "local"
+cpus_per_node = 12
+cores_per_worker = 1
+scheduler_options = ""
+launcher_options = ""
+cpu_affinity = "none"
+available_accelerators = 0
+pbs_filesystems = ""
+worker_init = []
