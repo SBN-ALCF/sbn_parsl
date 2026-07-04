@@ -541,6 +541,10 @@ gen = "gen.fcl"
     )
     cfg.save(config_file)
 
+    # Touch the launched marker to simulate a resume run
+    launched_marker = runinfo_dir / ".launched"
+    launched_marker.touch(exist_ok=True)
+
     class DummyWorkflowExecutor:
         def __init__(self, cfg):
             self.cfg = cfg

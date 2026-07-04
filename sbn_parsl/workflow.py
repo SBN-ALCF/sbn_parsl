@@ -854,6 +854,11 @@ class WorkflowExecutor:
         )
         print(f"Cache will be saved to {self._db_file}")
         self._db_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Mark that the workflow has actually started executing
+        launched_marker = self.runinfo_dir / ".launched"
+        launched_marker.touch(exist_ok=True)
+
         self._disk_db = sqlite3.connect(str(self._db_file), check_same_thread=False)
         self._mem_db = sqlite3.connect(":memory:", check_same_thread=False)
         self._disk_db.backup(self._mem_db)
