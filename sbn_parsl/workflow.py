@@ -821,6 +821,8 @@ class WorkflowExecutor:
             self._future_limit = False
 
         # for lots of futures (>10k), set is much faster than list)
+        self._futures_lock = threading.Lock()
+        self._futures_cv = threading.Condition(self._futures_lock)
         self.futures = set()
 
         self.workflow_opts = cfg.workflow
@@ -1037,76 +1039,90 @@ class LArSoftExecutor(WorkflowExecutor):
             print(f"(submitted/skipped) = ({self._stage_counter}/{self._skip_counter})")
             print(f"(success/fail) = ({self._success_counter}/{self._fail_counter})")
 
-    def get_task_results(self, min_done: int = 1, min_time=None):
+    def register_future(self, future):
         """
-        Wait for task to finish. Require min_done tasks and min_time time elapsed before returning
+        Register a future for task tracking and database caching.
         """
-        start_time = time.time()
+        with self._futures_lock:
+            self.futures.add(future)
+        self._register_future_callback(future)
 
-        ndone = 0
-        npass = 0
-        nfail = 0
+    def _register_future_callback(self, future):
+        def callback(f):
+            self._process_completed_future(f)
+        future.add_done_callback(callback)
 
-        # helper to check if we can return
-        def conditions_met():
-            now = time.time()
-            if ndone < min_done:
-                return False
-
-            # require minimum number of seconds
-            if min_time is not None:
-                if now - start_time < min_time:
-                    return False
-
-            return True
-
-        for f in as_completed(list(self.futures)):
-            self.futures.discard(f)
-            ndone += 1
-
-            success = False
-            try:
-                f.result()
-                success = True
-                self._db_event_queue.put(
-                    {"type": "stage", "stage_id": f.stage_id, "status": 0}
-                )
-                npass += 1
+    def _process_completed_future(self, f):
+        success = False
+        try:
+            f.result()
+            success = True
+            stage_id = getattr(f, "stage_id", "unknown")
+            self._db_event_queue.put(
+                {"type": "stage", "stage_id": stage_id, "status": 0}
+            )
+            with self._futures_lock:
                 self._success_counter += 1
-            except Exception as e:
-                # ignore "manager lost" errors. Don't write these to DB
-                if not isinstance(e, ManagerLostError):
-                    print(f"[FAILED] task {f.tid} {f.filepath} ({e})")
-                    self._db_event_queue.put(
-                        {"type": "stage", "stage_id": f.stage_id, "status": 1}
-                    )
-                nfail += 1
+        except Exception as e:
+            if not isinstance(e, ManagerLostError):
+                tid = getattr(f, "tid", "unknown")
+                filepath = getattr(f, "filepath", "unknown")
+                print(f"[FAILED] task {tid} {filepath} ({e})")
+                stage_id = getattr(f, "stage_id", "unknown")
+                self._db_event_queue.put(
+                    {"type": "stage", "stage_id": stage_id, "status": 1}
+                )
+            with self._futures_lock:
                 self._fail_counter += 1
 
-            # check if we can mark the workflow as complete
-            if success:
-                # try/except for backwards compatibility
-                try:
-                    if f.final:
+        if success:
+            try:
+                if f.final:
+                    with self._futures_lock:
                         self._workflow_counters[f.workflow_id]["done"] += 1
-                        if (
+                        is_complete = (
                             self._workflow_counters[f.workflow_id]["done"]
                             == self._workflow_counters[f.workflow_id]["nfinal"]
-                        ):
-                            # mark in DB that this workflow is fully finished
-                            print(f"Workflow {f.workflow_id} completed successfully!")
-                            self._db_event_queue.put(
-                                {"type": "workflow", "workflow_id": f.workflow_id}
-                            )
-                except AttributeError:
-                    print(
-                        "Future is missing workflow_id attribute required for caching. Please set in the runfunc!"
-                    )
+                        )
+                    if is_complete:
+                        print(f"Workflow {f.workflow_id} completed successfully!")
+                        self._db_event_queue.put(
+                            {"type": "workflow", "workflow_id": f.workflow_id}
+                        )
+            except AttributeError:
+                pass
 
-            if conditions_met():
-                break
+        with self._futures_lock:
+            self.futures.discard(f)
+            self._futures_cv.notify_all()
 
-        print(f"Futures [SUCCESS]/[FAILED]: {npass}/{nfail}")
+    def get_task_results(self, min_done: int = 1, min_time=None):
+        """
+        Wait for tasks to finish using the condition variable rather than
+        re-creating expensive as_completed iterators.
+        """
+        start_time = time.time()
+        with self._futures_lock:
+            initial_count = len(self.futures)
+            initial_success = self._success_counter
+            initial_fail = self._fail_counter
+            
+            while len(self.futures) > 0:
+                elapsed = time.time() - start_time
+                if min_time is not None and elapsed >= min_time:
+                    break
+                ndone = initial_count - len(self.futures)
+                if ndone >= min_done:
+                    break
+                
+                timeout = None
+                if min_time is not None:
+                    timeout = max(0.01, min_time - elapsed)
+                self._futures_cv.wait(timeout=timeout)
+                
+            npass = self._success_counter - initial_success
+            nfail = self._fail_counter - initial_fail
+            print(f"Futures [SUCCESS]/[FAILED]: {npass}/{nfail}")
 
     def _backup_db_loop(self):
         pending_stage_updates = []
