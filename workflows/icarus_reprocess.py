@@ -17,7 +17,7 @@ from sbn_parsl.workflow import (
 )
 from sbn_parsl.metadata import MetadataGenerator
 from sbn_parsl.components import RunContext, larsoft_runfunc, build_larsoft_cmd, output_filepath_generic
-from sbn_parsl.experiments.icarus import data_runfunc_icarus, build_modify_fcl_cmd_icarus
+from sbn_parsl.experiments.icarus import overlay_runfunc_icarus, build_modify_fcl_cmd_icarus
 from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
 from sbn_parsl.app import entry_point
 from sbn_parsl.config import Config
@@ -85,14 +85,14 @@ class OverlayExecutor(LArSoftExecutor):
                                               meta=self.meta)
 
         self._runfunc = functools.partial(
-            data_runfunc_icarus,
+            overlay_runfunc_icarus,
             template=CMD_TEMPLATE_CONTAINER,
             meta=self.meta,
             executor=self,
             last_file=None,
         )
         self._runfunc_no_meta = functools.partial(
-            data_runfunc_icarus,
+            overlay_runfunc_icarus,
             template=CMD_TEMPLATE_CONTAINER,
             meta=None,
             executor=self,
@@ -102,7 +102,14 @@ class OverlayExecutor(LArSoftExecutor):
 
 
     def file_generator(self):
+        # for CV
         path_generators = [self.stage0_path.rglob("stage0*overlay-000*.root")]
+        # for dirt
+        # path_generators = [self.stage0_path.rglob("stage0*mix-000*.root")]
+        # generator = itertools.chain(*path_generators)
+        # for run 2
+        # path_generators = [self.stage0_path.rglob("stage0*.root")]
+
         generator = itertools.chain(*path_generators)
         for f in generator:
             yield f
@@ -121,13 +128,23 @@ class OverlayExecutor(LArSoftExecutor):
         workflow.add_final_stage(s)
 
         for file in rawdata_files:
+            # for run4, dirt
             for i in range(0, 50, 10):
                 s_stage1 = Stage(DefaultStageTypes.STAGE1)
                 s_stage1.runfunc = self._runfunc_no_meta
                 s_stage1.run_dir = self.get_run_dir(iteration) / f'{i:03d}'
                 s.add_parents(s_stage1)
-                file_itr = pathlib.PurePath(str(file).replace('overlay-000', f'overlay-{i:03d}'))
+                # for dirt
+                # file_itr = pathlib.PurePath(str(file).replace('mix-000', f'mix-{i:03d}'))
+                file_itr = pathlib.PurePath(str(file).replace('overlay-000-', f'overlay-{i:03d}-'))
                 s_stage1.add_input_file(file_itr)
+            '''
+            # for run 2
+            s_stage1 = Stage(DefaultStageTypes.STAGE1)
+            s_stage1.runfunc = self._runfunc_no_meta
+            s.add_parents(s_stage1)
+            s_stage1.add_input_file(file)
+            '''
 
         return workflow
 
