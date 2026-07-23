@@ -148,7 +148,8 @@ def entry_point(argv, wfe_class):
     runinfo_dir.mkdir(parents=True, exist_ok=True)
 
     config_file = runinfo_dir / "config.toml"
-    if config_file.exists() and not args.force and not args.dry_run:
+    launched_marker = runinfo_dir / ".launched"
+    if config_file.exists() and launched_marker.exists() and not args.force and not args.dry_run:
         # Check compatibility
         existing_cfg = Config.load(config_file, site_name=cfg.site.name, validate=False)
         science_hash = cfg.get_science_hash()

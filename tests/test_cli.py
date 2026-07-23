@@ -138,6 +138,8 @@ def test_cli_science_mismatch_prevents_run(tmp_path_extended, mock_wfe):
         runinfo_dir.mkdir()
         config_toml = runinfo_dir / "config.toml"
         config_toml.write_text("dummy")
+        # Touch the launched marker to simulate a resume run
+        (runinfo_dir / ".launched").touch(exist_ok=True)
 
         # Mock existing_cfg load
         existing_cfg = MagicMock()
@@ -173,6 +175,8 @@ def test_cli_force_bypasses_mismatch(tmp_path_extended, mock_wfe):
         runinfo_dir = output_dir / "runinfo"
         runinfo_dir.mkdir()
         (runinfo_dir / "config.toml").write_text("dummy")
+        # Touch the launched marker to simulate a resume run
+        (runinfo_dir / ".launched").touch(exist_ok=True)
 
         existing_cfg = MagicMock()
         existing_cfg.get_science_hash.return_value = "hash2"
