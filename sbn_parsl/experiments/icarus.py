@@ -1,3 +1,4 @@
+import os
 import pathlib
 import functools
 from sbn_parsl.workflow import DefaultStageTypes
@@ -36,6 +37,11 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
         larcv_dir = pathlib.PurePosixPath(
             *[p if p != "stage1" else "larcv" for p in context.output_file.parent.parts]
         )
+
+        # now build a path on tmp with output structure that the template can copy out later
+        common = os.path.commonpath([context.output_file.parent, larcv_dir])
+
+        larcv_dir = '/tmp' / context.stage.run_dir.relative_to('/') / os.path.relpath(larcv_dir, common)
         larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
 
         larcv_dir_str = str(larcv_dir)
@@ -44,7 +50,7 @@ def build_modify_fcl_cmd_icarus(context: RunContext):
             [
                 f"mkdir -p {larcv_dir_str}",
                 fcl_cmd,
-                f'''echo "physics.analyzers.superaMC.out_filename: \\"{larcv_dir_str}/{larcv_filename.name}\\"" >> {fcl_name}''',
+                f"""echo "physics.analyzers.superaMC.out_filename: \\"{larcv_dir_str}/{larcv_filename.name}\\"" >> {fcl_name}""",
                 f"""echo "physics.analyzers.superaMC.unique_filename: false" >> {fcl_name}""",
             ]
         )
@@ -64,6 +70,7 @@ mc_runfunc_icarus = functools.partial(
 )
 icarus_registry.register_runfunc("mc", mc_runfunc_icarus)
 
+
 data_runfunc_icarus = functools.partial(
     larsoft_runfunc,
     output_filename_func=functools.partial(
@@ -71,3 +78,16 @@ data_runfunc_icarus = functools.partial(
     ),
 )
 icarus_registry.register_runfunc("data", data_runfunc_icarus)
+
+
+overlay_runfunc_icarus = functools.partial(
+    larsoft_runfunc,
+    lar_cmd_func=functools.partial(
+        build_larsoft_cmd, calib_ntuple_stage=DefaultStageTypes.STAGE1
+    ),
+    output_filename_func=functools.partial(
+        output_filepath_generic, is_mc=False, use_label=False, include_skip=True
+    ),
+    fcl_cmd_func=build_modify_fcl_cmd_icarus,
+)
+icarus_registry.register_runfunc("overlay", mc_runfunc_icarus)

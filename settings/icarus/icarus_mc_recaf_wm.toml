@@ -1,7 +1,7 @@
 [run]
 nsubruns = 1
 files_per_subrun = 1
-require_success = true
+require_success = false
 
 [workflow]
 sbnnusyst_env = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/sbnnusyst.env"
@@ -10,19 +10,19 @@ stage0_path = "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_mc_prod/stage
 
 [app.larsoft]
 software = "icaruscode"
-version = "v10_06_00_12"
+version = "v10_06_00_14"
 qual = "e26:prof"
 nevts = -1
 experiment = "icarus"
 lar_args = ""
-env_file = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/icaruscode-v10_06_00_12.env"
+env_file = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/icaruscode-v10_06_00_14.env"
 overlays = [
 	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/larsoft-v10_06_00.squashfs",
-	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/icarus-v10_06_00_12_delta.squashfs"
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/icarus-v10_06_00_14_delta.squashfs"
 ]
 
 [app.larsoft.tarballs]
-icaruscode = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/icaruscode-10.06.00.12-slf7-x86_64-e26-prof.tar.bz2"
+icaruscode = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/icaruscode-10.06.00.14-slf7-x86_64-e26-prof.tar.bz2"
 icarus_data = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/icarus_data-10.06.06-noarch.tar.bz2"
 
 [job]
@@ -35,8 +35,8 @@ retries = 0
 initialize_logging = false
 
 [workflow.fcls]
-stage1 = "stage1_run2_larcv_icarus_overlay.fcl"
+stage1 = "stage1_run2_larcv_icarus_overlay_wiremodcorr_run4.fcl"
 caf = "cafmakerjob_icarus_detsim2d_systtools_and_fluxwgt_overlay.fcl"
 
 [app.larsoft.metadata]
-mdprojectversion = "v10_06_00_12"
+mdprojectversion = "v10_06_00_14"

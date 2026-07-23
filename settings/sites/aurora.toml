@@ -7,7 +7,7 @@ launcher_options = "--ppn 1 --depth=104 --cpu-bind depth"
 cpu_affinity = "aurora"
 available_accelerators = 102
 pbs_filesystems = "home:flare"
-max_futures = 100000
+max_futures = 200000
 worker_init = [
     "export TMPDIR=/tmp/",
 ]

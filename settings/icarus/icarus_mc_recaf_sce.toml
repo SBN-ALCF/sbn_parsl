@@ -6,7 +6,8 @@ require_success = true
 [workflow]
 sbnnusyst_env = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/sbnnusyst.env"
 sbnnusyst_fcl = "Ar23+_knobs.ParamHeader.fcl"
-stage0_path = "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_mc_prod/stage0"
+stage1_path = "/lus/flare/projects/neutrinoGPU/twester/icarus_recaf_prod/stage1"
+skip_file_list = "/lus/flare/projects/neutrinoGPU/twester/icarus_recaf_sce_prod/sce_skip_list.txt"
 
 [app.larsoft]
 software = "icaruscode"
@@ -35,8 +36,7 @@ retries = 0
 initialize_logging = false
 
 [workflow.fcls]
-stage1 = "stage1_run2_larcv_icarus_overlay.fcl"
-caf = "cafmakerjob_icarus_detsim2d_systtools_and_fluxwgt_overlay.fcl"
+caf = "cafmakerjob_icarus_sce_detsim2d_overlay.fcl"
 
 [app.larsoft.metadata]
 mdprojectversion = "v10_06_00_12"

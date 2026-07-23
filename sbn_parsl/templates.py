@@ -232,6 +232,15 @@ echo "Current directory: "
 pwd
 echo "Current files: "
 ls
+
+# echo "Input file check: "
+# if [ "{{input}}x" != "x" ]; then
+#     if [ ! -f "{{input}}" ]; then
+#         echo "Input file {{input}} not found!"
+#         exit 1
+#     fi
+# fi
+
 echo "Move fcl."
 
 echo "CONTAINTER $(date +%s) $(hostname)"
@@ -312,8 +321,12 @@ echo "CLEAN $(date +%s) $(hostname)"
 echo "cp *.root $(dirname {{output}}) || true"
 cp *.root $(dirname {{output}}) && rm -f *.root || true
 
-echo "p *.json $(dirname {{output}}) || true"
+echo "cp *.json $(dirname {{output}}) || true"
 cp *.json $(dirname {{output}}) && rm -f *.json || true
+
+# special tmp area mirroring workdir structure
+# e.g. /tmp/workdir/larcv gets copied to /output/larcv
+cp -a /tmp/{{workdir}}/. {{rootdir}}/ && rm -rf /tmp/{{workdir}} || true
 
 {{post_job_hook}}
 {JOB_POST}
