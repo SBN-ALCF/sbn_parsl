@@ -41,6 +41,7 @@ def fcl_future(
     pre_job_hook="",
     post_job_hook="",
     parsl_resource_specification={},
+    rootdir=""
 ):
     """Return formatted bash script which produces each future when executed."""
     return template.format(
@@ -52,6 +53,7 @@ def fcl_future(
         **larsoft_opts,
         pre_job_hook=pre_job_hook,
         post_job_hook=post_job_hook,
+        rootdir=rootdir
     )
 
 
@@ -170,18 +172,15 @@ def build_larsoft_cmd(
     calib_str = ""
     mkdir_cmd = ""
     if calib_ntuple_stage and context.stage.stage_type == calib_ntuple_stage:
-        parent_name = (
-            context.stage.parent_type.name if context.stage.parent_type else "unknown"
-        )
-        parent_dir = pathlib.PurePosixPath(
+        calib_dir = pathlib.PurePosixPath(
             *[
-                p if p != parent_name else "calib_ntuple"
-                for p in context.input_files[0].parent.parts
+                p if p != context.stage.stage_type.name else "calib_ntuple"
+                for p in context.output_file.parent.parts
             ]
         )
-        calib_filename = parent_dir / f"hists_{context.input_files[0].name}"
+        calib_filename = calib_dir / f"hists_{context.input_files[0].name}"
         calib_str = f" -T {str(calib_filename)}"
-        mkdir_cmd = f"mkdir -p {str(parent_dir)}\n"
+        mkdir_cmd = f"mkdir -p {str(calib_dir)}\n"
 
     cmd = f"lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}{calib_str} --tmpdir=/tmp"
     return mkdir_cmd + cmd
@@ -323,6 +322,14 @@ def larsoft_runfunc(
         executor._skip_counter += 1
         return StageResult(outputs=[context.output_file])
 
+    '''
+    if context.output_file.is_file():
+        print(f'file found {context.output_file}, skipping')
+        executor._skip_counter += 1
+        return StageResult(outputs=[context.output_file])
+    '''
+
+
     # clean any input files that are in /tmp after this stage completes
     rm_cmd = "\n".join(
         [f"rm {f}" for f in context.input_files if str(f).startswith("/tmp/")]
@@ -401,6 +408,7 @@ def larsoft_runfunc(
         outputs=[File(str(context.output_file))],
         pre_job_hook=mg_cmd,
         parsl_resource_specification=resource_spec,
+        rootdir=str(context.cfg.run.output)
     )
 
     _transfer_ids(self, future.outputs[0])

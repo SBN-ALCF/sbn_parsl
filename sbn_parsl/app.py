@@ -257,6 +257,7 @@ def entry_point(argv, wfe_class):
                 stderr=str(submit_script_dir / f"{job_name}.stderr"),
                 walltime=cfg.job.walltime,
                 nodes_per_block=cfg.job.nodes_per_block,
+                cpus_per_node=cfg.site.cpus_per_node,
                 hostfile_cmd=hostfile_cmd,
                 worker_init=worker_init,
                 extra_args=extra_args_str,
@@ -303,7 +304,7 @@ LOCAL_TEMPLATE = r"""#!/bin/bash
 #PBS -N {job_name}
 #PBS -m n
 #PBS -l walltime={walltime}
-#PBS -l select={nodes_per_block}
+#PBS -l select={nodes_per_block}:ncpus={cpus_per_node}
 #PBS -o {stdout}
 #PBS -e {stderr}
 #PBS -l filesystems=home:flare
