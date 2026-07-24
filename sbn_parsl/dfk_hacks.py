@@ -160,25 +160,26 @@ def my_launch_task(self, task_record):
                 if fallback_runtime is not None:
                     parent_runtimes.append(fallback_runtime)
                 else:
-                    # If it's missing, check if it was ever launched as a Parsl task in this run
-                    is_known_task = hasattr(self, '_stage_id_to_task_id') and pid in self._stage_id_to_task_id
-                    
-                    if is_known_task:
-                        available_keys = list(getattr(self, '_completed_stages_runtime', {}).keys())
-                        raise KeyError(
-                            f"Parent stage ID '{pid}' WAS launched as a Parsl task, but its runtime is missing! "
-                            f"Available runtime keys: {available_keys}. "
-                            f"Task record: {task_record}"
-                        )
-                    else:
-                        # It was never launched as a Parsl task AND is not in the cached restart DB.
-                        # This means it was a combined stage (like s_gen.combine = True) or purely a data dependency.
-                        # It has no execution runtime to inherit, so we gracefully ignore it!
-                        pass
+                    available_keys = list(getattr(self, '_completed_stages_runtime', {}).keys())
+                    raise KeyError(
+                        f"CRITICAL ERROR: Parent stage ID '{pid}' runtime is missing when launching {task_record['id']} ({stage_id})!\n"
+                        f"This means either the dependency tracking failed (and this task launched before {pid} finished), "
+                        f"or {pid} was not added to _completed_stages_runtime properly.\n"
+                        f"Available completed keys: {available_keys}\n"
+                        f"Task record: {task_record}"
+                    )
 
         # If we successfully resolved all parent runtimes:
         if parent_runtimes:
-            spec['priority'] = -int(max(parent_runtimes))
+            # We add a large multiplier based on the stage_id depth so that earlier stages
+            # (which have longer IDs) always take precedence over later stages.
+            # Ties are broken by the parent runtime (longest task first)
+            stage_depth = len(stage_id.split('_')) if stage_id else 0
+            base_priority = stage_depth * 1000000
+            
+            # Note: Parsl's queue executes tasks with LARGER priority numbers first!
+            # So we add the max parent runtime (longest task gets higher priority number)
+            spec['priority'] = base_priority + int(max(parent_runtimes))
             print(f"[PRIORITY UPDATE] Task {task_record['id']} ({stage_id}) priority set to {spec['priority']} (parent runtimes: {parent_runtimes})", flush=True)
 
     return self._orig_launch_task(task_record)
