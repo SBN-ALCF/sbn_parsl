@@ -1072,10 +1072,22 @@ class LArSoftExecutor(WorkflowExecutor):
             stage_id = getattr(f, "stage_id", None)
             if stage_id:
                 self._completion_counter += 1
+                
+                # Determine parent execution runtime
+                parent = getattr(f, "parent", f)
+                task_record = getattr(parent, "task_record", None)
+                runtime = 0.0
+                if task_record:
+                    start_t = task_record.get('try_time_launched')
+                    end_t = task_record.get('try_time_returned')
+                    if start_t and end_t:
+                        runtime = (end_t - start_t).total_seconds()
+                
                 self._completed_stages_info[stage_id] = {
                     'completion_order': self._completion_counter,
                     'timestamp': time.time(),
-                    'workflow_id': getattr(f, "workflow_id", None)
+                    'workflow_id': getattr(f, "workflow_id", None),
+                    'runtime': runtime
                 }
 
             success = False
