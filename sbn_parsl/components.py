@@ -447,26 +447,34 @@ def larsoft_runfunc(
         print("-" * 40)
         return StageResult(outputs=[context.output_file])
 
+    # Construct parent stage IDs based on the stage_id structure
+    parsl_parent_stage_ids = []
+    if self.stage_id is not None:
+        num_parents = len(self._parent_results) if self._parent_results else 0
+        for i in range(num_parents):
+            parent_result = self._parent_results[i]
+            if getattr(parent_result, "combined", False):
+                # Inherit the combined stage's logical parsl parents
+                parsl_parent_stage_ids.extend(getattr(parent_result, "parsl_parent_stage_ids", []))
+            else:
+                # The parent was an actual Parsl task (or skipped cache hit)
+                parent_tuple = self.stage_id + (i,)
+                parent_stage_id_str = f"{self.workflow_id}_" + "_".join(str(c) for c in parent_tuple)
+                parsl_parent_stage_ids.append(parent_stage_id_str)
+
     if self.combine:
         return StageResult(
             outputs=[context.output_file],
             dependencies=dummy_input + input_files + depends,
             command=mg_cmd + "\n" + cmd,
+            parsl_parent_stage_ids=parsl_parent_stage_ids,
+            combined=True
         )
-
-    # Construct parent stage IDs based on the stage_id structure
-    parent_stage_ids = []
-    if self.stage_id is not None:
-        num_parents = len(self._parent_results) if self._parent_results else 0
-        for i in range(num_parents):
-            parent_tuple = self.stage_id + (i,)
-            parent_stage_id_str = f"{self.workflow_id}_" + "_".join(str(c) for c in parent_tuple)
-            parent_stage_ids.append(parent_stage_id_str)
 
     resource_spec = {
         "priority": self.workflow_id,
         "stage_id": self.stage_id_str,
-        "parent_stage_ids": parent_stage_ids
+        "parent_stage_ids": parsl_parent_stage_ids
     }
 
     stdout = str(run_dir / context.output_file.name.replace(".root", ".out"))

@@ -57,6 +57,8 @@ class StageResult:
     outputs: List[Any] = field(default_factory=list)
     dependencies: List[Any] = field(default_factory=list)
     command: str = ""
+    parsl_parent_stage_ids: List[str] = field(default_factory=list)
+    combined: bool = False
 
 
 logger = logging.getLogger(__name__)
