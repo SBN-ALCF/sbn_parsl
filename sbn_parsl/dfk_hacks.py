@@ -120,7 +120,33 @@ def my_check_memo(self, task):
     return result
 
 
-def apply_hacks(dfk, update_memo=True, check_memo=False):
+def my_launch_task(self, task_record):
+    """
+    Monkey-patched launch_task function that intercepts the launch process,
+    retrieves completion info of parent stages, calculates a dynamic priority,
+    and removes custom keys from the resource_specification to pass Parsl's validation.
+    """
+    spec = task_record.get('resource_specification', {})
+    # Pop custom metadata keys so Parsl's executor validator doesn't raise exception
+    stage_id = spec.pop('stage_id', None)
+    parent_stage_ids = spec.pop('parent_stage_ids', [])
+
+    if parent_stage_ids and hasattr(self, 'workflow_executor'):
+        wfe = self.workflow_executor
+        completed_info = getattr(wfe, '_completed_stages_info', {})
+        parent_runtimes = [
+            completed_info[pid].get('runtime', 0.0)
+            for pid in parent_stage_ids
+            if pid in completed_info
+        ]
+        if parent_runtimes:
+            # Longest task first (larger runtime -> lower priority number in HTEX)
+            spec['priority'] = -int(max(parent_runtimes))
+
+    return self._orig_launch_task(task_record)
+
+
+def apply_hacks(dfk, update_memo=True, check_memo=False, dynamic_priority=True):
     """Overwrite functions in DataFlowKernel object."""
     if update_memo:
         func_update_memo = MethodType(my_update_memo, dfk.memoizer)
@@ -129,3 +155,8 @@ def apply_hacks(dfk, update_memo=True, check_memo=False):
     if check_memo:
         func_check_memo = MethodType(my_check_memo, dfk.memoizer)
         dfk.memoizer.check_memo = func_check_memo
+
+    if dynamic_priority:
+        dfk._orig_launch_task = dfk.launch_task
+        dfk.launch_task = MethodType(my_launch_task, dfk)
+

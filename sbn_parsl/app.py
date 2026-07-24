@@ -294,6 +294,7 @@ def entry_point(argv, wfe_class):
     with parsl.load(parsl_config) as dfk:
         apply_hacks(dfk)
         wfe = wfe_class(cfg)
+        dfk.workflow_executor = wfe
         wfe.execute(cycle)
 
 

@@ -832,6 +832,10 @@ class WorkflowExecutor:
         self._success_counter = 0
         self._fail_counter = 0
 
+        # completed stages tracking for dynamic prioritization
+        self._completion_counter = 0
+        self._completed_stages_info = {}
+
         # file tracking with sqlite
         self._db_update_thread = threading.Thread(
             target=self._backup_db_loop, daemon=True
@@ -1063,6 +1067,16 @@ class LArSoftExecutor(WorkflowExecutor):
         for f in as_completed(list(self.futures)):
             self.futures.discard(f)
             ndone += 1
+
+            # Record completion metadata for dynamic prioritization
+            stage_id = getattr(f, "stage_id", None)
+            if stage_id:
+                self._completion_counter += 1
+                self._completed_stages_info[stage_id] = {
+                    'completion_order': self._completion_counter,
+                    'timestamp': time.time(),
+                    'workflow_id': getattr(f, "workflow_id", None)
+                }
 
             success = False
             try:

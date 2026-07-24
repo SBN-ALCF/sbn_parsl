@@ -374,7 +374,20 @@ def larsoft_runfunc(
             command=mg_cmd + "\n" + cmd,
         )
 
-    resource_spec = {"priority": self.workflow_id}
+    # Construct parent stage IDs based on the stage_id structure
+    parent_stage_ids = []
+    if self.stage_id is not None:
+        num_parents = len(self._parent_results) if self._parent_results else 0
+        for i in range(num_parents):
+            parent_tuple = self.stage_id + (i,)
+            parent_stage_id_str = f"{self.workflow_id}_" + "_".join(str(c) for c in parent_tuple)
+            parent_stage_ids.append(parent_stage_id_str)
+
+    resource_spec = {
+        "priority": self.workflow_id,
+        "stage_id": self.stage_id_str,
+        "parent_stage_ids": parent_stage_ids
+    }
 
     stdout = str(run_dir / context.output_file.name.replace(".root", ".out"))
     stderr = str(run_dir / context.output_file.name.replace(".root", ".err"))

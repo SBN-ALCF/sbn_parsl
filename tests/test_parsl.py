@@ -569,6 +569,157 @@ gen = "gen.fcl"
     assert f"file_cache_{expected_hash}.db" in captured.out
 
 
+def prioritized_parsl_runfunc(
+    stage_self,
+    fcl,
+    parent_result: StageResult,
+    output_dir,
+    executor,
+    app,
+) -> StageResult:
+    output_filename = os.path.basename(fcl).replace(".fcl", ".root")
+    if output_dir is None:
+        output_dir = pathlib.Path(".")
+    output_file = output_dir / pathlib.Path(output_filename)
+
+    # Compute parent stage IDs just like in components.py
+    parent_stage_ids = []
+    if stage_self.stage_id is not None:
+        num_parents = len(stage_self._parent_results) if stage_self._parent_results else 0
+        for i in range(num_parents):
+            parent_tuple = stage_self.stage_id + (i,)
+            parent_stage_id_str = f"{stage_self.workflow_id}_" + "_".join(str(c) for c in parent_tuple)
+            parent_stage_ids.append(parent_stage_id_str)
+
+    resource_spec = {
+        "priority": stage_self.workflow_id,
+        "stage_id": stage_self.stage_id_str,
+        "parent_stage_ids": parent_stage_ids
+    }
+
+    future = app(
+        outputs=[File(str(output_file))],
+        stdout=str(output_dir / "log.err"),
+        stderr=str(output_dir / "log.out"),
+        parsl_resource_specification=resource_spec
+    )
+    _transfer_ids(stage_self, future.outputs[0])
+
+    executor.futures.add(future.outputs[0])
+    executor._stage_counter += 1
+    return StageResult(outputs=[output_file])
+
+
+@bash_app(cache=False)
+def prioritization_pass_app(outputs, stdout, stderr, parsl_resource_specification={}):
+    return f"mkdir -p $(dirname {outputs[0]}); touch {outputs[0]}; exit 0"
+
+
+def test_dynamic_task_prioritization(temp_db_dir):
+    """Test that dynamic task prioritization correctly intercepts, modifies priority, and removes custom fields."""
+    from types import MethodType
+    from sbn_parsl.dfk_hacks import apply_hacks
+    from parsl.executors.threads import ThreadPoolExecutor as ParslThreadPoolExecutor
+    
+    # Patch ThreadPoolExecutor.submit to ignore resource_specification instead of raising an error
+    orig_submit = ParslThreadPoolExecutor.submit
+    def mock_submit(self, func, resource_specification, *args, **kwargs):
+        return self.executor.submit(func, *args, **kwargs)
+    ParslThreadPoolExecutor.submit = mock_submit
+    
+    try:
+        config = minimal_parsl_config(temp_db_dir)
+        parsl.clear()
+        dfk = parsl.load(config)
+        apply_hacks(dfk, dynamic_priority=True)
+        
+        intercepted_priorities = {}
+        
+        # Inject the mock workflow executor reference
+        class MockWFE:
+            def __init__(self):
+                self._completion_counter = 10
+                self._completed_stages_info = {}
+        
+        dfk.workflow_executor = MockWFE()
+        
+        # Wrap the monkey-patched launch_task to inspect the task record
+        orig_my_launch_task = dfk.launch_task
+        def spy_launch_task(self, task_record):
+            # Run the prioritization logic first
+            res = orig_my_launch_task(task_record)
+            # Capture the state after my_launch_task has modified the dictionary in-place
+            spec = task_record.get('resource_specification', {}).copy()
+            task_id = task_record['id']
+            intercepted_priorities[task_id] = spec
+            return res
+            
+        dfk.launch_task = MethodType(spy_launch_task, dfk)
+        
+        # Run workflow using TestPrioritizedExecutor
+        cfg = create_mock_config(temp_db_dir)
+        cfg.workflow = WorkflowConfig(fcls={"gen": "gen.fcl", "g4": "g4.fcl"})
+        cfg.run.nsubruns = 1
+        
+        class TestPrioritizedExecutor(LArSoftExecutor):
+            def __init__(self, cfg: Config):
+                super().__init__(cfg)
+                self.runfunc = functools.partial(
+                    prioritized_parsl_runfunc, executor=self, app=prioritization_pass_app
+                )
+                
+            def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
+                workflow = Workflow(
+                    stage_order=[DefaultStageTypes.GEN, DefaultStageTypes.G4],
+                    default_fcls=self.fcls
+                )
+                s1 = Stage(DefaultStageTypes.GEN)
+                s1.runfunc = self.runfunc
+                s1.run_dir = self.output_dir / "gen"
+                
+                s2 = Stage(DefaultStageTypes.G4)
+                s2.runfunc = self.runfunc
+                s2.add_parents(s1)
+                s2.run_dir = self.output_dir / "g4"
+                
+                workflow.add_final_stage(s2)
+                return workflow
+                
+        wfe = TestPrioritizedExecutor(cfg)
+        dfk.workflow_executor = wfe
+        # Mock completed parent GEN stage
+        # GEN stage ID string is "0_0_0" (since workflow_id=0, parent is s1 with stage_id=(0, 0))
+        dfk.workflow_executor._completed_stages_info = {
+            "0_0_0": {
+                "completion_order": 42,
+                "timestamp": 12345.0,
+                "workflow_id": 0,
+                "runtime": 150.0
+            }
+        }
+        
+        wfe.execute()
+        
+    finally:
+        parsl.clear()
+        ParslThreadPoolExecutor.submit = orig_submit
+        
+    # Assertions
+    assert len(intercepted_priorities) > 0
+    
+    # Check that 'stage_id' and 'parent_stage_ids' were popped (removed)
+    # and that G4 task was assigned the priority value of -150 based on parent's runtime
+    g4_found = False
+    for tid, spec in intercepted_priorities.items():
+        assert 'stage_id' not in spec
+        assert 'parent_stage_ids' not in spec
+        if spec.get('priority') == -150:
+            g4_found = True
+            
+    assert g4_found, "G4 task should have had its priority set to -150 based on parent runtime"
+
+
+
 
 
 
