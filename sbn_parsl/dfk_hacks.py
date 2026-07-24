@@ -131,25 +131,23 @@ def my_launch_task(self, task_record):
     stage_id = spec.pop('stage_id', None)
     parent_stage_ids = spec.pop('parent_stage_ids', [])
 
-    # 1. Map this task's stage_id to its Parsl task ID
+    # 1. Map this task's stage_id to its Parsl task ID and vice-versa
     if stage_id:
         if not hasattr(self, '_stage_id_to_task_id'):
             self._stage_id_to_task_id = {}
         self._stage_id_to_task_id[stage_id] = task_record['id']
 
-    # 2. Retrieve parent runtimes from DFK's internal task records
+        if not hasattr(self, '_task_id_to_stage_id'):
+            self._task_id_to_stage_id = {}
+        self._task_id_to_stage_id[task_record['id']] = stage_id
+
+    # 2. Retrieve parent runtimes from DFK's completed stages runtimes
     if parent_stage_ids:
         parent_runtimes = []
-        if hasattr(self, '_stage_id_to_task_id'):
+        if hasattr(self, '_completed_stages_runtime'):
             for pid in parent_stage_ids:
-                parent_task_id = self._stage_id_to_task_id.get(pid)
-                if parent_task_id is not None and parent_task_id in self.tasks:
-                    parent_rec = self.tasks[parent_task_id]
-                    start_t = parent_rec.get('try_time_launched')
-                    end_t = parent_rec.get('try_time_returned')
-                    if start_t and end_t:
-                        runtime = (end_t - start_t).total_seconds()
-                        parent_runtimes.append(runtime)
+                if pid in self._completed_stages_runtime:
+                    parent_runtimes.append(self._completed_stages_runtime[pid])
 
         # Fallback to workflow_executor._completed_stages_info (useful for tests or alternate executors)
         if not parent_runtimes and hasattr(self, 'workflow_executor'):
@@ -169,6 +167,56 @@ def my_launch_task(self, task_record):
     return self._orig_launch_task(task_record)
 
 
+def my_complete_task_result(self, task_record, new_state, result):
+    """Intercept task success to record runtime before DFK's garbage collector wipes the task record."""
+    import datetime
+
+    task_id = task_record['id']
+    stage_id = None
+    if hasattr(self, '_task_id_to_stage_id'):
+        stage_id = self._task_id_to_stage_id.get(task_id)
+
+    if stage_id:
+        start_t = task_record.get('try_time_launched')
+        end_t = datetime.datetime.now()
+        runtime = 0.0
+
+        # If result is a dict containing precise runtime from python_app, use it
+        if isinstance(result, dict) and 'runtime' in result:
+            runtime = result['runtime']
+        elif start_t and end_t:
+            runtime = (end_t - start_t).total_seconds()
+
+        if not hasattr(self, '_completed_stages_runtime'):
+            self._completed_stages_runtime = {}
+        self._completed_stages_runtime[stage_id] = runtime
+
+    return self._orig_complete_task_result(task_record, new_state, result)
+
+
+def my_complete_task_exception(self, task_record, new_state, exception):
+    """Intercept task failure to record runtime before DFK's garbage collector wipes the task record."""
+    import datetime
+
+    task_id = task_record['id']
+    stage_id = None
+    if hasattr(self, '_task_id_to_stage_id'):
+        stage_id = self._task_id_to_stage_id.get(task_id)
+
+    if stage_id:
+        start_t = task_record.get('try_time_launched')
+        end_t = datetime.datetime.now()
+        runtime = 0.0
+        if start_t and end_t:
+            runtime = (end_t - start_t).total_seconds()
+
+        if not hasattr(self, '_completed_stages_runtime'):
+            self._completed_stages_runtime = {}
+        self._completed_stages_runtime[stage_id] = runtime
+
+    return self._orig_complete_task_exception(task_record, new_state, exception)
+
+
 def apply_hacks(dfk, update_memo=True, check_memo=False, dynamic_priority=True):
     """Overwrite functions in DataFlowKernel object."""
     if update_memo:
@@ -182,4 +230,10 @@ def apply_hacks(dfk, update_memo=True, check_memo=False, dynamic_priority=True):
     if dynamic_priority:
         dfk._orig_launch_task = dfk.launch_task
         dfk.launch_task = MethodType(my_launch_task, dfk)
+
+        dfk._orig_complete_task_result = dfk._complete_task_result
+        dfk._complete_task_result = MethodType(my_complete_task_result, dfk)
+
+        dfk._orig_complete_task_exception = dfk._complete_task_exception
+        dfk._complete_task_exception = MethodType(my_complete_task_exception, dfk)
 

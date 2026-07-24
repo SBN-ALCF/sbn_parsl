@@ -13,7 +13,7 @@ import functools
 
 import parsl
 from parsl.data_provider.files import File
-from parsl.app.app import bash_app
+from parsl.app.app import bash_app, python_app
 
 from sbn_parsl.workflow import (
     StageType,
@@ -28,7 +28,34 @@ from sbn_parsl.config import Config, LArSoftConfig
 from sbn_parsl.utils import hash_name
 
 
-@bash_app(cache=False)
+def format_fcl_cmd(
+    workdir,
+    template,
+    cmd,
+    larsoft_opts,
+    inputs=[],
+    outputs=[],
+    pre_job_hook="",
+    post_job_hook="",
+):
+    """Format and return the FHICL execution command line string."""
+    fhicl_path = inputs[0].filepath if hasattr(inputs[0], 'filepath') else str(inputs[0])
+    output_path = outputs[0].filepath if hasattr(outputs[0], 'filepath') else str(outputs[0])
+    input_path = (inputs[1].filepath if hasattr(inputs[1], 'filepath') else str(inputs[1])) if len(inputs) > 1 else ""
+
+    return template.format(
+        fhicl=fhicl_path,
+        workdir=workdir,
+        output=output_path,
+        input=input_path,
+        cmd=cmd,
+        **larsoft_opts,
+        pre_job_hook=pre_job_hook,
+        post_job_hook=post_job_hook,
+    )
+
+
+@python_app(cache=False)
 def fcl_future(
     workdir,
     stdout,
@@ -42,17 +69,70 @@ def fcl_future(
     post_job_hook="",
     parsl_resource_specification={},
 ):
-    """Return formatted bash script which produces each future when executed."""
-    return template.format(
-        fhicl=inputs[0],
+    """Run formatted bash script using subprocess on the worker and return exit code + execution duration."""
+    import subprocess
+    import time
+    import os
+    from sbn_parsl.components import format_fcl_cmd
+
+    fhicl_path = inputs[0].filepath if hasattr(inputs[0], 'filepath') else str(inputs[0])
+    output_path = outputs[0].filepath if hasattr(outputs[0], 'filepath') else str(outputs[0])
+    input_path = (inputs[1].filepath if hasattr(inputs[1], 'filepath') else str(inputs[1])) if len(inputs) > 1 else ""
+
+    cmd_str = format_fcl_cmd(
         workdir=workdir,
-        output=outputs[0],
-        input=inputs[1] if len(inputs) > 1 else "",
+        template=template,
         cmd=cmd,
-        **larsoft_opts,
+        larsoft_opts=larsoft_opts,
+        inputs=inputs,
+        outputs=outputs,
         pre_job_hook=pre_job_hook,
         post_job_hook=post_job_hook,
     )
+
+    # Ensure output directory exists
+    if output_path:
+        out_dir = os.path.dirname(output_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
+    # Ensure log directories exist
+    if stdout:
+        stdout_dir = os.path.dirname(stdout)
+        if stdout_dir:
+            os.makedirs(stdout_dir, exist_ok=True)
+    if stderr:
+        stderr_dir = os.path.dirname(stderr)
+        if stderr_dir:
+            os.makedirs(stderr_dir, exist_ok=True)
+
+    start_time = time.time()
+    
+    # Redirect stdout and stderr to the specified log files
+    out_f = open(stdout, "w") if stdout else None
+    err_f = open(stderr, "w") if stderr else None
+    try:
+        res = subprocess.run(
+            cmd_str,
+            shell=True,
+            cwd=workdir,
+            stdout=out_f,
+            stderr=err_f,
+        )
+        returncode = res.returncode
+    finally:
+        if out_f:
+            out_f.close()
+        if err_f:
+            err_f.close()
+
+    end_time = time.time()
+    runtime = end_time - start_time
+
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, cmd_str)
+
+    return {"returncode": returncode, "runtime": runtime}
 
 
 @dataclass

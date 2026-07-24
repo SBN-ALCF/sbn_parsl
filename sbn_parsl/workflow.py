@@ -1077,7 +1077,14 @@ class LArSoftExecutor(WorkflowExecutor):
                 parent = getattr(f, "parent", f)
                 task_record = getattr(parent, "task_record", None)
                 runtime = 0.0
-                if task_record:
+                try:
+                    res = f.result()
+                    if isinstance(res, dict) and 'runtime' in res:
+                        runtime = res['runtime']
+                except Exception:
+                    pass
+
+                if runtime == 0.0 and task_record:
                     start_t = task_record.get('try_time_launched')
                     end_t = task_record.get('try_time_returned')
                     if start_t and end_t:
