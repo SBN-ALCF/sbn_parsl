@@ -131,14 +131,36 @@ def my_launch_task(self, task_record):
     stage_id = spec.pop('stage_id', None)
     parent_stage_ids = spec.pop('parent_stage_ids', [])
 
-    if parent_stage_ids and hasattr(self, 'workflow_executor'):
-        wfe = self.workflow_executor
-        completed_info = getattr(wfe, '_completed_stages_info', {})
-        parent_runtimes = [
-            completed_info[pid].get('runtime', 0.0)
-            for pid in parent_stage_ids
-            if pid in completed_info
-        ]
+    # 1. Map this task's stage_id to its Parsl task ID
+    if stage_id:
+        if not hasattr(self, '_stage_id_to_task_id'):
+            self._stage_id_to_task_id = {}
+        self._stage_id_to_task_id[stage_id] = task_record['id']
+
+    # 2. Retrieve parent runtimes from DFK's internal task records
+    if parent_stage_ids:
+        parent_runtimes = []
+        if hasattr(self, '_stage_id_to_task_id'):
+            for pid in parent_stage_ids:
+                parent_task_id = self._stage_id_to_task_id.get(pid)
+                if parent_task_id is not None and parent_task_id in self.tasks:
+                    parent_rec = self.tasks[parent_task_id]
+                    start_t = parent_rec.get('try_time_launched')
+                    end_t = parent_rec.get('try_time_returned')
+                    if start_t and end_t:
+                        runtime = (end_t - start_t).total_seconds()
+                        parent_runtimes.append(runtime)
+
+        # Fallback to workflow_executor._completed_stages_info (useful for tests or alternate executors)
+        if not parent_runtimes and hasattr(self, 'workflow_executor'):
+            wfe = self.workflow_executor
+            completed_info = getattr(wfe, '_completed_stages_info', {})
+            parent_runtimes = [
+                completed_info[pid].get('runtime', 0.0)
+                for pid in parent_stage_ids
+                if pid in completed_info
+            ]
+
         if parent_runtimes:
             # Longest task first (larger runtime -> lower priority number in HTEX)
             spec['priority'] = -int(max(parent_runtimes))
