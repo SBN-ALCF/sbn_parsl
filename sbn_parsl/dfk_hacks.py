@@ -142,6 +142,7 @@ def my_launch_task(self, task_record):
         if parent_runtimes:
             # Longest task first (larger runtime -> lower priority number in HTEX)
             spec['priority'] = -int(max(parent_runtimes))
+            print(f"[PRIORITY UPDATE] Task {task_record['id']} ({stage_id}) priority set to {spec['priority']} (parent runtimes: {parent_runtimes})", flush=True)
 
     return self._orig_launch_task(task_record)
 

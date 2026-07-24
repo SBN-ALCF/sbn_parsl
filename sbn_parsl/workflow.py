@@ -1089,6 +1089,7 @@ class LArSoftExecutor(WorkflowExecutor):
                     'workflow_id': getattr(f, "workflow_id", None),
                     'runtime': runtime
                 }
+                print(f"[STAGE COMPLETED] Stage {stage_id} completed. Runtime: {runtime:.2f} seconds", flush=True)
 
             success = False
             try:
