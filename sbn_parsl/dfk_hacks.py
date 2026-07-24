@@ -144,23 +144,40 @@ def my_launch_task(self, task_record):
     # 2. Retrieve parent runtimes from DFK's completed stages runtimes
     if parent_stage_ids:
         parent_runtimes = []
-        if hasattr(self, '_completed_stages_runtime'):
-            for pid in parent_stage_ids:
-                if pid in self._completed_stages_runtime:
-                    parent_runtimes.append(self._completed_stages_runtime[pid])
+        for pid in parent_stage_ids:
+            # First check DFK completed runtimes
+            if hasattr(self, '_completed_stages_runtime') and pid in self._completed_stages_runtime:
+                parent_runtimes.append(self._completed_stages_runtime[pid])
+            else:
+                # Try fallback to workflow_executor._completed_stages_info (useful for testing/restarts)
+                fallback_runtime = None
+                if hasattr(self, 'workflow_executor'):
+                    wfe = self.workflow_executor
+                    completed_info = getattr(wfe, '_completed_stages_info', {})
+                    if pid in completed_info:
+                        fallback_runtime = completed_info[pid].get('runtime')
 
-        # Fallback to workflow_executor._completed_stages_info (useful for tests or alternate executors)
-        if not parent_runtimes and hasattr(self, 'workflow_executor'):
-            wfe = self.workflow_executor
-            completed_info = getattr(wfe, '_completed_stages_info', {})
-            parent_runtimes = [
-                completed_info[pid].get('runtime', 0.0)
-                for pid in parent_stage_ids
-                if pid in completed_info
-            ]
+                if fallback_runtime is not None:
+                    parent_runtimes.append(fallback_runtime)
+                else:
+                    # If it's missing, check if it was ever launched as a Parsl task in this run
+                    is_known_task = hasattr(self, '_stage_id_to_task_id') and pid in self._stage_id_to_task_id
+                    
+                    if is_known_task:
+                        available_keys = list(getattr(self, '_completed_stages_runtime', {}).keys())
+                        raise KeyError(
+                            f"Parent stage ID '{pid}' WAS launched as a Parsl task, but its runtime is missing! "
+                            f"Available runtime keys: {available_keys}. "
+                            f"Task record: {task_record}"
+                        )
+                    else:
+                        # It was never launched as a Parsl task AND is not in the cached restart DB.
+                        # This means it was a combined stage (like s_gen.combine = True) or purely a data dependency.
+                        # It has no execution runtime to inherit, so we gracefully ignore it!
+                        pass
 
+        # If we successfully resolved all parent runtimes:
         if parent_runtimes:
-            # Longest task first (larger runtime -> lower priority number in HTEX)
             spec['priority'] = -int(max(parent_runtimes))
             print(f"[PRIORITY UPDATE] Task {task_record['id']} ({stage_id}) priority set to {spec['priority']} (parent runtimes: {parent_runtimes})", flush=True)
 

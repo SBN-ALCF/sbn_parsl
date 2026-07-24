@@ -1078,7 +1078,7 @@ class LArSoftExecutor(WorkflowExecutor):
                 task_record = getattr(parent, "task_record", None)
                 runtime = 0.0
                 try:
-                    res = f.result()
+                    res = parent.result()
                     if isinstance(res, dict) and 'runtime' in res:
                         runtime = res['runtime']
                 except Exception:
