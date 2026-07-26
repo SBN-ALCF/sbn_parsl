@@ -171,15 +171,14 @@ def my_launch_task(self, task_record):
 
         # If we successfully resolved all parent runtimes:
         if parent_runtimes:
-            # We add a large multiplier based on the stage_id depth so that earlier stages
-            # (which have longer IDs) always take precedence over later stages.
-            # Ties are broken by the parent runtime (longest task first)
+            # We use a negative depth multiplier because Parsl executes the SMALLEST priority value first.
+            # Depth 6 (e.g. G4) becomes -6,000,000, which executes before Depth 3 (e.g. RECO2) at -3,000,000.
             stage_depth = len(stage_id.split('_')) if stage_id else 0
-            base_priority = stage_depth * 1000000
+            base_priority = -stage_depth * 1000000
             
-            # Note: Parsl's queue executes tasks with LARGER priority numbers first!
-            # So we add the max parent runtime (longest task gets higher priority number)
-            spec['priority'] = base_priority + int(max(parent_runtimes))
+            # We subtract the runtime so longer tasks get a smaller (more negative) priority value,
+            # ensuring they execute first (Longest-Task-First).
+            spec['priority'] = base_priority - int(max(parent_runtimes))
             print(f"[PRIORITY UPDATE] Task {task_record['id']} ({stage_id}) priority set to {spec['priority']} (parent runtimes: {parent_runtimes})", flush=True)
 
     return self._orig_launch_task(task_record)
