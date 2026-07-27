@@ -1,5 +1,6 @@
 [site]
 name = "polaris"
+message_queue_batch_limit = 500
 cpus_per_node = 32
 cores_per_worker = 1
 scheduler_options = "#PBS -l filesystems=home:grand:eagle\n#PBS -l place=scatter"

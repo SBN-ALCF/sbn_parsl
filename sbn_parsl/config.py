@@ -40,6 +40,7 @@ class SiteConfig:
     cpus_per_node: int
     cores_per_worker: int
     max_futures: int = 60000
+    message_queue_batch_limit: int = 0
     scheduler_options: str = ""
     launcher_options: str = ""
     cpu_affinity: str = "none"
