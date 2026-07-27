@@ -1,5 +1,6 @@
 [site]
 name = "aurora"
+message_queue_batch_limit = 1000
 cpus_per_node = 102
 cores_per_worker = 1
 scheduler_options = "#PBS -l filesystems=home:flare"
