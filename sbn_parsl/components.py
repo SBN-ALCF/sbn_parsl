@@ -322,12 +322,10 @@ def larsoft_runfunc(
         executor._skip_counter += 1
         return StageResult(outputs=[context.output_file])
 
-    '''
     if context.output_file.is_file():
         print(f'file found {context.output_file}, skipping')
         executor._skip_counter += 1
         return StageResult(outputs=[context.output_file])
-    '''
 
 
     # clean any input files that are in /tmp after this stage completes
@@ -381,7 +379,7 @@ def larsoft_runfunc(
             command=mg_cmd + "\n" + cmd,
         )
 
-    resource_spec = {"priority": self.workflow_id}
+    resource_spec = {"priority": -len(self.stage_id)}
 
     stdout = str(run_dir / context.output_file.name.replace(".root", ".out"))
     stderr = str(run_dir / context.output_file.name.replace(".root", ".err"))
