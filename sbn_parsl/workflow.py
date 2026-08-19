@@ -61,6 +61,22 @@ class StageResult:
 logger = logging.getLogger(__name__)
 
 
+# Task ordering strategies, selected with run.task_order.
+#   "depth":    prioritize tasks by their distance from the end of the workflow,
+#               so every workflow's dependency-free first stage is dispatched
+#               before any workflow's second stage.
+#   "workflow": prioritize by workflow id, so a low-numbered workflow is carried
+#               through to completion before later ones are started.
+TASK_ORDERS = ("depth", "workflow")
+
+# How Stage.get_next_task should walk a stage's parent branches to submit tasks
+# in an order that matches each strategy. Note the unrelated collision in the
+# word "depth": the submit modes are Stage.get_next_task's own vocabulary, where
+# "cycle" round-robins between parent branches and "depth" carries one branch to
+# completion first. A stage-depth *priority* therefore wants "cycle" submission.
+TASK_ORDER_SUBMIT_MODES = {"depth": "cycle", "workflow": "depth"}
+
+
 class NoInputFileException(Exception):
     """Raised when a stage requires an input file but none was provided."""
 
@@ -282,6 +298,10 @@ class Stage:
         self.stage_id: Tuple[int] = None
         self.final: bool = False
         self._is_finalized: bool = False
+
+        # how get_next_task walks this stage's parent branches. None means
+        # inherit from the child stage, defaulting to "cycle" at the root
+        self.submit_mode: Optional[str] = None
 
     @property
     def stage_type(self) -> StageType:
@@ -564,17 +584,22 @@ class Stage:
                 s.run_dir = self.run_dir
             if s.runfunc is None:
                 s.runfunc = self.runfunc
+            if s.submit_mode is None:
+                s.submit_mode = self.submit_mode
 
             self._parents_iterators.append((s, run_stage(s)))
 
-    def get_next_task(self, mode="cycle"):
+    def get_next_task(self, mode: Optional[str] = None):
         """
         Yields execution control to parent stages until they complete.
 
         Args:
             mode: "cycle" to alternate between parent branches, or "depth"
-                  to finish one branch before starting another.
+                  to finish one branch before starting another. Defaults to
+                  this stage's submit_mode, or "cycle" if that is unset.
         """
+        if mode is None:
+            mode = self.submit_mode or "cycle"
         while self._parents_iterators:
             # remove
             parent, iterator = self._parents_iterators.popleft()
@@ -640,7 +665,7 @@ def run_stage(stage: Stage):
 
     while stage.has_parents():
         try:
-            next(stage.get_next_task())
+            next(stage.get_next_task(mode=stage.submit_mode))
             if not stage.combine:
                 yield
         except StopIteration:
@@ -726,6 +751,16 @@ class Workflow:
         self._stage.runfunc = self._default_runfunc
         self._stage.stage_order = self._stage_order + [_SUPER]
         self._final_stages = []
+
+    @property
+    def submit_mode(self) -> Optional[str]:
+        """How stages in this workflow walk their parent branches when submitting."""
+        return self._stage.submit_mode
+
+    @submit_mode.setter
+    def submit_mode(self, mode: Optional[str]) -> None:
+        # must be set before _finalize(), which is what propagates it down
+        self._stage.submit_mode = mode
 
     def add_final_stage(self, stage: Stage):
         """
@@ -814,6 +849,14 @@ class WorkflowExecutor:
             else:
                 raise
 
+        self.task_order = cfg.run.task_order
+        if self.task_order not in TASK_ORDERS:
+            raise ValueError(
+                f"Unknown run.task_order {self.task_order!r}. "
+                f"Choose one of {', '.join(TASK_ORDERS)}."
+            )
+        self._submit_mode = TASK_ORDER_SUBMIT_MODES[self.task_order]
+
         self.max_futures = cfg.site.max_futures
         self._future_limit = True
         if self.max_futures < 0:
@@ -829,6 +872,9 @@ class WorkflowExecutor:
         # optionally track the number of submitted stages. Runfunc should modify these
         self._stage_counter = 0
         self._skip_counter = 0
+        # subset of _skip_counter that was skipped because the output file was
+        # already on disk rather than because the cache database knew about it
+        self._file_skip_counter = 0
         self._success_counter = 0
         self._fail_counter = 0
 
@@ -879,6 +925,22 @@ class WorkflowExecutor:
                 id UNSIGNED INT PRIMARY KEY
             )
         """)
+
+
+    def task_priority(self, stage) -> int:
+        """
+        Parsl resource-specification priority for a stage's task.
+
+        HTEX dispatches the lowest priority value first, breaking ties by
+        submission order (see parsl interchange.process_task_incoming).
+        """
+        if self.task_order == "workflow":
+            # every task in workflow N outranks every task in workflow N+1
+            return stage.workflow_id
+
+        # stage_id gains one element per step back up the ancestry, so the
+        # deepest ancestors -- the dependency-free first stages -- sort first
+        return -len(stage.stage_id)
 
 
 class LArSoftExecutor(WorkflowExecutor):
@@ -1044,6 +1106,11 @@ class LArSoftExecutor(WorkflowExecutor):
         print("Done")
         if not self.dry_run:
             print(f"(submitted/skipped) = ({self._stage_counter}/{self._skip_counter})")
+            if self._file_skip_counter:
+                print(
+                    f"{self._file_skip_counter} skipped stage(s) were found on disk "
+                    "but missing from the cache database"
+                )
             print(f"(success/fail) = ({self._success_counter}/{self._fail_counter})")
 
     def register_future(self, future):
@@ -1248,6 +1315,8 @@ class LArSoftExecutor(WorkflowExecutor):
         wf = self.setup_single_workflow(iteration, inputs, last_file)
         if wf is not None:
             wf._id = iteration
+            # set before _finalize(), which propagates it down the ancestry
+            wf.submit_mode = self._submit_mode
             wf._finalize()
         return wf
 

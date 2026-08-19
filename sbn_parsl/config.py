@@ -173,6 +173,19 @@ class RunConfig:
     file_list: Optional[str] = None
     files_per_subrun: Optional[int] = None
 
+    # Task dispatch strategy: "depth" runs dependency-free first stages before
+    # any later stage, "workflow" carries each workflow to completion in turn.
+    # See sbn_parsl.workflow.TASK_ORDERS. Deliberately not part of the science
+    # hash -- switching strategies must not invalidate the file cache.
+    task_order: str = "depth"
+
+    # Stat each stage's predicted output at submit time and skip the task if the
+    # file is already there. Off by default: it costs one filesystem check per
+    # task, which is the thing the cache database exists to avoid. Worth turning
+    # on when the database is suspected of having missed completed stages and
+    # re-running them would cost more than the stats.
+    check_existing_outputs: bool = False
+
 
 @dataclass
 class Config:

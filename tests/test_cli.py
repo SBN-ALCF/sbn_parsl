@@ -573,3 +573,201 @@ def test_local_qsub_submission_creates_correct_script(tmp_path_extended, mock_wf
         assert "cat << 'EOL' > cmd_" in script_content
         assert "python /path/to/workflows/my_workflow.py" in script_content
 
+
+
+def test_task_order_cli_parsing():
+    """--task-order is optional and constrained to the known strategies."""
+    from sbn_parsl.workflow import TASK_ORDERS
+
+    base = ["prog", "settings.toml", "-o", "/tmp/out"]
+
+    args = parse_arguments(base)
+    # unset means "fall back to the TOML or the RunConfig default"
+    assert args.task_order is None
+
+    for order in TASK_ORDERS:
+        args = parse_arguments(base + ["--task-order", order])
+        assert args.task_order == order
+
+    with pytest.raises(SystemExit):
+        parse_arguments(base + ["--task-order", "sideways"])
+
+
+def test_task_order_override_and_hash_stability(tmp_path_extended):
+    """The CLI override must reach RunConfig without disturbing the science hash."""
+    wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
+    real_path = pathlib.Path
+
+    def mock_path_side_effect(*args, **kwargs):
+        if args and isinstance(args[0], str) and args[0].endswith("config.py"):
+            return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
+        return real_path(*args, **kwargs)
+
+    with patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect):
+        default_cfg = Config.load(
+            wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
+        )
+        assert default_cfg.run.task_order == "depth"
+
+        override_cfg = Config.load(
+            wf_path,
+            site_name="polaris",
+            run_overrides={"output": "/tmp/out", "task_order": "workflow"},
+        )
+        assert override_cfg.run.task_order == "workflow"
+
+        # switching strategies must not rename the file cache db or trip the
+        # science-identity guard in entry_point
+        assert override_cfg.get_science_hash() == default_cfg.get_science_hash()
+
+
+def test_task_order_from_toml(tmp_path_extended):
+    """task_order can also be set under [run] in the settings file."""
+    wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc_order.toml"
+    wf_path.write_text("""
+[app.larsoft]
+experiment = "sbnd"
+version = "v1"
+qual = "e26:prof"
+
+[run]
+task_order = "workflow"
+
+[workflow.fcls]
+gen = "gen.fcl"
+""")
+    real_path = pathlib.Path
+
+    def mock_path_side_effect(*args, **kwargs):
+        if args and isinstance(args[0], str) and args[0].endswith("config.py"):
+            return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
+        return real_path(*args, **kwargs)
+
+    with patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect):
+        cfg = Config.load(
+            wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
+        )
+        assert cfg.run.task_order == "workflow"
+
+
+def test_check_existing_outputs_cli_parsing():
+    """The flag is tri-state: absent leaves the TOML value alone."""
+    base = ["prog", "settings.toml", "-o", "/tmp/out"]
+
+    assert parse_arguments(base).check_existing_outputs is None
+    assert parse_arguments(base + ["--check-existing-outputs"]).check_existing_outputs is True
+    assert (
+        parse_arguments(base + ["--no-check-existing-outputs"]).check_existing_outputs
+        is False
+    )
+
+
+def test_check_existing_outputs_config(tmp_path_extended):
+    """Defaults off, overridable from TOML and CLI, and outside the science hash."""
+    wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
+    toml_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc_check.toml"
+    toml_path.write_text("""
+[app.larsoft]
+experiment = "sbnd"
+version = "v1"
+qual = "e26:prof"
+
+[run]
+check_existing_outputs = true
+
+[workflow.fcls]
+gen = "gen.fcl"
+""")
+    real_path = pathlib.Path
+
+    def mock_path_side_effect(*args, **kwargs):
+        if args and isinstance(args[0], str) and args[0].endswith("config.py"):
+            return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
+        return real_path(*args, **kwargs)
+
+    with patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect):
+        default_cfg = Config.load(
+            wf_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
+        )
+        assert default_cfg.run.check_existing_outputs is False
+
+        from_toml = Config.load(
+            toml_path, site_name="polaris", run_overrides={"output": "/tmp/out"}
+        )
+        assert from_toml.run.check_existing_outputs is True
+
+        # CLI can turn a TOML true back off
+        cli_off = Config.load(
+            toml_path,
+            site_name="polaris",
+            run_overrides={"output": "/tmp/out", "check_existing_outputs": False},
+        )
+        assert cli_off.run.check_existing_outputs is False
+
+        # and it must not rename the file cache db
+        assert from_toml.get_science_hash() == default_cfg.get_science_hash()
+
+
+def test_qsub_script_forwards_new_flags(tmp_path_extended, mock_wfe):
+    """--task-order and --check-existing-outputs must survive the local relaunch."""
+    wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
+    output_dir = tmp_path_extended / "output_flags"
+    output_dir.mkdir()
+
+    real_path = pathlib.Path
+
+    def mock_path_side_effect(*args, **kwargs):
+        if args and isinstance(args[0], str) and args[0].endswith("config.py"):
+            return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
+        return real_path(*args, **kwargs)
+
+    with (
+        patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect),
+        patch("sbn_parsl.app.subprocess.run") as mock_run,
+        patch("sbn_parsl.parsl_setup.detect_active_env", return_value="/my/fake/venv"),
+        patch("sys.argv", ["/path/to/workflows/my_workflow.py"]),
+        patch("os.environ", {}),
+    ):
+        args = parse_arguments([
+            "prog", str(wf_path), "-o", str(output_dir), "--local",
+            "--site", "polaris",
+            "--task-order", "workflow",
+            "--check-existing-outputs",
+        ])
+        entry_point(args, mock_wfe)
+
+        script_path = mock_run.call_args[0][0][-1]
+        script_content = open(script_path).read()
+        assert "--task-order workflow" in script_content
+        assert "--check-existing-outputs" in script_content
+        assert "--no-check-existing-outputs" not in script_content
+
+
+def test_qsub_script_forwards_negated_output_check(tmp_path_extended, mock_wfe):
+    """An explicit --no-check-existing-outputs must be forwarded, not dropped."""
+    wf_path = tmp_path_extended / "settings" / "sbnd" / "sbnd_mc.toml"
+    output_dir = tmp_path_extended / "output_flags_off"
+    output_dir.mkdir()
+
+    real_path = pathlib.Path
+
+    def mock_path_side_effect(*args, **kwargs):
+        if args and isinstance(args[0], str) and args[0].endswith("config.py"):
+            return real_path(tmp_path_extended / "sbn_parsl" / "config.py")
+        return real_path(*args, **kwargs)
+
+    with (
+        patch("sbn_parsl.config.pathlib.Path", side_effect=mock_path_side_effect),
+        patch("sbn_parsl.app.subprocess.run") as mock_run,
+        patch("sbn_parsl.parsl_setup.detect_active_env", return_value="/my/fake/venv"),
+        patch("sys.argv", ["/path/to/workflows/my_workflow.py"]),
+        patch("os.environ", {}),
+    ):
+        args = parse_arguments([
+            "prog", str(wf_path), "-o", str(output_dir), "--local",
+            "--site", "polaris", "--no-check-existing-outputs",
+        ])
+        entry_point(args, mock_wfe)
+
+        script_content = open(mock_run.call_args[0][0][-1]).read()
+        assert "--no-check-existing-outputs" in script_content

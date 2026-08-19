@@ -47,6 +47,21 @@ def parse_arguments(argv):
     parser.add_argument(
         "-c", "--cycle", type=int, help="Cycle workflow submission count"
     )
+    parser.add_argument(
+        "--task-order",
+        choices=["depth", "workflow"],
+        help="Task dispatch strategy. 'depth' (default) runs dependency-free "
+        "first stages before any later stage; 'workflow' carries each workflow "
+        "to completion before starting the next",
+    )
+    parser.add_argument(
+        "--check-existing-outputs",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Stat each stage's output at submit time and skip the task if it "
+        "already exists. Off by default; costs one filesystem check per task, "
+        "but avoids re-running stages the cache database failed to record",
+    )
     parser.add_argument("--nsubruns", type=int, help="Number of subruns to execute")
     parser.add_argument(
         "--force",
@@ -87,6 +102,8 @@ def print_config_summary(cfg: Config):
     print(f"  Output Directory: {cfg.run.output}")
     print(f"  Number of Subruns:{cfg.run.nsubruns}")
     print(f"  Require Success:  {cfg.run.require_success}")
+    print(f"  Task Order:       {cfg.run.task_order}")
+    print(f"  Check Outputs:    {cfg.run.check_existing_outputs}")
 
     # 3. Environment & Virtual Env
     print("\nPython Environment:")
@@ -132,6 +149,8 @@ def entry_point(argv, wfe_class):
         "runinfo": args.runinfo,
         "nsubruns": args.nsubruns,
         "daos": args.daos,
+        "task_order": args.task_order,
+        "check_existing_outputs": args.check_existing_outputs,
     }
 
     cfg = Config.load(
@@ -243,6 +262,14 @@ def entry_point(argv, wfe_class):
                 extra_args.append(f"-c {args.cycle}")
             if args.nsubruns is not None:
                 extra_args.append(f"--nsubruns {args.nsubruns}")
+            if args.task_order is not None:
+                extra_args.append(f"--task-order {args.task_order}")
+            if args.check_existing_outputs is not None:
+                extra_args.append(
+                    "--check-existing-outputs"
+                    if args.check_existing_outputs
+                    else "--no-check-existing-outputs"
+                )
             if args.force:
                 extra_args.append("--force")
 

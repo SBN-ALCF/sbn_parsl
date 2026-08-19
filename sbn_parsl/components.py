@@ -322,11 +322,20 @@ def larsoft_runfunc(
         executor._skip_counter += 1
         return StageResult(outputs=[context.output_file])
 
-    if context.output_file.is_file():
-        print(f'file found {context.output_file}, skipping')
+    # Optional submit-time filesystem check, for when the cache database is
+    # believed to have missed completed stages. Combined stages are excluded:
+    # their output lives in /tmp on a worker, so a stale local file would be
+    # meaningless, and skipping one would drop its command from the child's
+    # script and leave the child with an input that was never produced.
+    if (
+        executor.cfg.run.check_existing_outputs
+        and not executor.dry_run
+        and not self.combine
+        and context.output_file.is_file()
+    ):
         executor._skip_counter += 1
+        executor._file_skip_counter += 1
         return StageResult(outputs=[context.output_file])
-
 
     # clean any input files that are in /tmp after this stage completes
     rm_cmd = "\n".join(
@@ -379,7 +388,7 @@ def larsoft_runfunc(
             command=mg_cmd + "\n" + cmd,
         )
 
-    resource_spec = {"priority": -len(self.stage_id)}
+    resource_spec = {"priority": executor.task_priority(self)}
 
     stdout = str(run_dir / context.output_file.name.replace(".root", ".out"))
     stderr = str(run_dir / context.output_file.name.replace(".root", ".err"))
