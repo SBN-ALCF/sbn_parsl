@@ -32,7 +32,6 @@ from types import MethodType
 import itertools
 import pathlib
 from collections import deque
-from concurrent.futures import as_completed
 import sqlite3
 import logging
 from enum import Flag, auto
@@ -1004,13 +1003,22 @@ class LArSoftExecutor(WorkflowExecutor):
                     "nfinal": wfs[idx].n_final_stages,
                 }
 
-            # rate-limit the number of concurrent futures to avoid using too
-            # much memory on login nodes (set to negative number to disable)
             if not self.dry_run:
+                # opportunistically harvest whatever finished while we were
+                # submitting. The emptiness check is O(1) and the main thread
+                # is the only consumer of this queue, so this cannot block.
+                # Draining here keeps self.futures small (so the limiter below
+                # rarely engages) and streams stage results to the database
+                # continuously, instead of only once we hit the future cap.
+                if not self._completed_queue.empty():
+                    self.get_task_results(min_done=1, min_time=1, verbose=False)
+
+                # rate-limit the number of concurrent futures to avoid using
+                # too much memory on login nodes (negative max_futures
+                # disables this)
                 while len(self.futures) >= self.max_futures and self._future_limit:
-                    min_done = min(1, len(self.futures) - self.max_futures)
                     print(f"Waiting: Current futures={len(self.futures)}")
-                    self.get_task_results(min_done=min_done, min_time=1)
+                    self.get_task_results(min_done=1, min_time=1)
 
             try:
                 next(wfs[idx].get_next_task())
@@ -1048,10 +1056,25 @@ class LArSoftExecutor(WorkflowExecutor):
     def _register_future_callback(self, future):
         future.add_done_callback(lambda f: self._completed_queue.put(f))
 
-    def get_task_results(self, min_done: int = 1, min_time=None):
+    def get_task_results(self, min_done: int = 1, min_time=None, verbose: bool = True):
         """
         Wait for tasks to finish using a message queue for batched processing.
+
+        Returns once min_done futures have been retired or min_time seconds
+        have elapsed, whichever comes first. Note that min_time is an upper
+        bound on the time spent here, not a lower bound: the point is to get
+        back to submitting tasks as soon as a slot frees up.
+
+        min_done is clamped to >= 1 so a call can never be a no-op. With
+        min_done == 0 the loop below returns without ever reading the
+        completed queue, and callers that loop until futures are retired
+        spin forever.
+
+        verbose=False suppresses the per-call throughput line, for callers
+        that drain opportunistically and would otherwise print once per
+        submitted task. Task failures are always reported.
         """
+        min_done = max(1, min_done)
         start_time = time.time()
         initial_success = self._success_counter
         initial_fail = self._fail_counter
@@ -1086,35 +1109,28 @@ class LArSoftExecutor(WorkflowExecutor):
                         break
                         
                 for f in futures_batch:
+                    # read the IDs attached by the runfunc before the try:
+                    # a missing attribute is a bug in the runfunc, and must
+                    # not be mistaken for a task failure by the handler below
+                    stage_id = f.stage_id
                     success = False
                     try:
                         f.result()
                         success = True
-                        stage_id = getattr(f, "stage_id", "unknown")
                         db_stage_batch.append((stage_id, 0))
                         self._success_counter += 1
                     except Exception as e:
                         if not isinstance(e, ManagerLostError):
-                            tid = getattr(f, "tid", "unknown")
-                            filepath = getattr(f, "filepath", "unknown")
-                            print(f"[FAILED] task {tid} {filepath} ({e})")
-                            stage_id = getattr(f, "stage_id", "unknown")
+                            print(f"[FAILED] task {f.tid} {f.filepath} ({e})")
                             db_stage_batch.append((stage_id, 1))
                         self._fail_counter += 1
                         
-                    if success:
-                        try:
-                            if f.final:
-                                self._workflow_counters[f.workflow_id]["done"] += 1
-                                is_complete = (
-                                    self._workflow_counters[f.workflow_id]["done"]
-                                    == self._workflow_counters[f.workflow_id]["nfinal"]
-                                )
-                                if is_complete:
-                                    print(f"Workflow {f.workflow_id} completed successfully!")
-                                    db_workflow_batch.append(f.workflow_id)
-                        except AttributeError:
-                            pass
+                    if success and f.final:
+                        counter = self._workflow_counters[f.workflow_id]
+                        counter["done"] += 1
+                        if counter["done"] == counter["nfinal"]:
+                            print(f"Workflow {f.workflow_id} completed successfully!")
+                            db_workflow_batch.append(f.workflow_id)
                             
                     self.futures.discard(f)
                     ndone += 1
@@ -1129,7 +1145,7 @@ class LArSoftExecutor(WorkflowExecutor):
 
         npass = self._success_counter - initial_success
         nfail = self._fail_counter - initial_fail
-        if npass > 0 or nfail > 0:
+        if verbose and (npass > 0 or nfail > 0):
             print(f"Futures [SUCCESS]/[FAILED]: {npass}/{nfail}")
 
     def _backup_db_loop(self):
