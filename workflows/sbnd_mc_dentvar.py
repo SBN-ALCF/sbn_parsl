@@ -57,11 +57,13 @@ class CAFFromGenExecutor(LArSoftExecutor):
         s_cv.run_dir = get_caf_dir(self.output_dir, iteration) / 'cv'
         workflow.add_final_stage(s_cv)
 
+        var_cafs = {}
         for var in self.vars:
             s_var = Stage(DefaultStageTypes.CAF, fcl=self.var_fcls[var]['caf'])
             s_var.runfunc = self.var_runfuncs[var]
             s_var.run_dir = get_caf_dir(self.output_dir, iteration) / var
             workflow.add_final_stage(s_var)
+            var_cafs[var] = s_var
 
         for i in range(self.subruns_per_caf):
             inst = iteration * self.subruns_per_caf + i
@@ -89,7 +91,7 @@ class CAFFromGenExecutor(LArSoftExecutor):
                 s_detsim_var = Stage(DefaultStageTypes.DETSIM, fcl=self.var_fcls[var]['detsim'])
                 s_g4_var = Stage(DefaultStageTypes.G4, fcl=self.var_fcls[var]['g4'])
 
-                s_var.add_parents(s_reco2_var)
+                var_cafs[var].add_parents(s_reco2_var)
                 s_reco2_var.add_parents(s_reco1_var)
                 s_reco1_var.add_parents(s_detsim_var)
                 s_detsim_var.add_parents(s_g4_var)
@@ -98,7 +100,7 @@ class CAFFromGenExecutor(LArSoftExecutor):
                 s_g4_var.add_parents(s_gen)
 
                 s_g4_var.combine = True
-                s_reco2.combine = True
+                s_reco2_var.combine = True
 
                 # each workflow will have its own directory
                 s_reco2_var.run_dir = get_subrun_dir(self.output_dir, inst) / var

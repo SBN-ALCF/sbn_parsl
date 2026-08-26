@@ -862,6 +862,15 @@ class WorkflowExecutor:
         if self.max_futures < 0:
             self._future_limit = False
 
+        # How many completions to retire per trip through the rate limiter.
+        # Retiring one at a time turns the submit loop into a ping-pong once we
+        # are pinned at the cap: one drain, one print and one database message
+        # per submitted task. Draining in batches keeps all three proportional
+        # to throughput instead of to task count.
+        self._drain_batch = 1000
+        if self._future_limit:
+            self._drain_batch = max(1, self.max_futures // 100)
+
         # for lots of futures (>10k), set is much faster than list)
         self._completed_queue = queue.SimpleQueue()
         self.futures = set()
@@ -1080,7 +1089,7 @@ class LArSoftExecutor(WorkflowExecutor):
                 # disables this)
                 while len(self.futures) >= self.max_futures and self._future_limit:
                     print(f"Waiting: Current futures={len(self.futures)}")
-                    self.get_task_results(min_done=1, min_time=1)
+                    self.get_task_results(min_done=self._drain_batch, min_time=1)
 
             try:
                 next(wfs[idx].get_next_task())
@@ -1099,7 +1108,7 @@ class LArSoftExecutor(WorkflowExecutor):
         if not self.dry_run:
             while len(self.futures) > 0:
                 print(f"All tasks submitted, draining {len(self.futures)} tasks")
-                self.get_task_results(min_done=1, min_time=5)
+                self.get_task_results(min_done=self._drain_batch, min_time=5)
 
         self._db_worker_stop.set()
         self._db_update_thread.join()
