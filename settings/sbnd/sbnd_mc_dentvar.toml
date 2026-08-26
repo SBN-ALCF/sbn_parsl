@@ -1,0 +1,42 @@
+[run]
+
+[workflow]
+subruns_per_caf = 1
+
+[app.larsoft]
+software = "sbndcode"
+version = "v10_06_00_1001"
+qual = "e26:prof"
+nevts = 50
+experiment = "sbnd"
+lar_args = ""
+env_file = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/sbndcode-v10_06_00_1001.env"
+overlays = [
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/larsoft-v10_06_00.squashfs",
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/sbnd-v10_06_00_10_01_delta.squashfs"
+]
+
+simulation_inputs = "/lus/flare/projects/neutrinoGPU/simulation_inputs_striped"
+flux_path = "FluxFiles"
+flux_files = "gsimple_april07_baseline_*_redecay_wkaonwgh.root"
+flux_type = "simple_flux"
+first_run = 20000
+
+
+[app.larsoft.tarballs]
+sbndcode = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/sbndcode-10.06.00.1001-slf7-x86_64-e26-prof.tar.bz2"
+sbnd_data = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/sbnd_data-01.35.02-noarch.tar.bz2"
+
+[job]
+queue = "debug"
+walltime = "1:00:00"
+nodes_per_block = 1
+allocation = "neutrinoGPU::debug2"
+retries = 0
+
+[workflow.fcls]
+cv = { gen = "prodgenie_corsika_proton_rockbox_sbnd.fcl", g4 = "standard_g4_rockbox_sbnd.fcl", detsim = "standard_detsim_sbnd.fcl", reco1 = "standard_reco1_sbnd.fcl", reco2 = "standard_reco2_sbnd.fcl", caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl" }
+dent = { gen = "", g4 = "standard_g4_rockbox_sbnd_cathodefilt.fcl", detsim = "standard_detsim_sbnd_cathodefilt.fcl", reco1 = "standard_reco1_sbnd.fcl", reco2 = "standard_reco2_sbnd.fcl", caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl" }
+
+[app.larsoft.metadata]
+mdprojectversion = "v10_06_00_1001"

@@ -196,7 +196,7 @@ def build_modify_fcl_cmd(context: RunContext) -> str:
     fcl_cmd = ""
     fcl_name = context.fcl.name
     if context.stage.stage_type == DefaultStageTypes.GEN:
-        run_number = 1 + (context.stage.workflow_id // 100)
+        run_number = 1 + (context.stage.workflow_id // 100) + context.lar_args.first_run
         # Try to get first_run from lar_args if it was added as extra, though not in dataclass yet
         # For now, use 0 as default
         subrun_number = context.stage.workflow_id % 100

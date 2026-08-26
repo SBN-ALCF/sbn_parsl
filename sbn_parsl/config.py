@@ -111,6 +111,7 @@ class LArSoftConfig:
     software: str = "sbndcode"
     nevts: int = -1
     nskip: int = 0
+    first_run: int = 0
     lar_args: str = ""
     flux_path: str = "fluxFiles/bnb/G4BNB/v1.1.1/fhc/a"
     flux_files: str = "NuBeam_production_BooNE_50m_I174000A_*.dk2nu.root"
