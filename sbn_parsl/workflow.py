@@ -622,9 +622,21 @@ def run_stage(stage: Stage):
     """
     Generator function that executes a stage and its ancestry recursively.
 
-    This function yields Control to the caller each time a new task is
-    ready for submission. It ensures that parent stages are fully
-    traversed before the child stage executes.
+    Yields exactly once per task submitted, so that one next() on this
+    generator corresponds to one task handed to parsl. Two consequences:
+
+    - A yield from an ancestor is always propagated (it means a task was
+      submitted somewhere up the chain), whatever this stage's combine flag.
+    - A combine=True stage does not yield for its own run, because its command
+      is folded into its child's script rather than submitted on its own.
+
+    Guarding the ancestor yield on combine instead, as this used to, made a
+    combined stage swallow every yield its ancestry earned and emit one of its
+    own. The two cancel when the ancestry yields once, so combining the first
+    stage of a chain looked fine, but combining a deeper stage collapsed every
+    submitting stage beneath it into a single next() -- which silently multiplied
+    the futures the executor submits per workflow and left most of them blocked
+    on dependencies.
 
     Args:
         stage: The Stage object to run.
@@ -649,11 +661,13 @@ def run_stage(stage: Stage):
 
     if StageProperty.NO_PARENT in stage.stage_type.properties:
         stage.run()
-        yield
+        if not stage.combine:
+            yield
 
     if stage.input_files is not None and not stage.has_parents():
         stage.run()
-        yield
+        if not stage.combine:
+            yield
 
     if stage.complete:
         return
@@ -666,13 +680,13 @@ def run_stage(stage: Stage):
     while stage.has_parents():
         try:
             next(stage.get_next_task(mode=stage.submit_mode))
-            if not stage.combine:
-                yield
+            yield
         except StopIteration:
             pass
 
     stage.run()
-    yield
+    if not stage.combine:
+        yield
 
 
 class Workflow:
@@ -871,6 +885,45 @@ class WorkflowExecutor:
         if self._future_limit:
             self._drain_batch = max(1, self.max_futures // 100)
 
+        # Worker slots this job asked for, used as the denominator when
+        # reporting how much of the machine is actually being fed. Mirrors the
+        # sizing in parsl_setup.create_executor_by_hostname. Best-effort: config
+        # may be mocked or incomplete, in which case we simply do not report it.
+        self._slot_estimate = 0
+        workers = None
+        try:
+            workers = cfg.job.max_workers_per_node or cfg.site.cpus_per_node
+            self._slot_estimate = int(cfg.job.nodes_per_block) * int(workers)
+        except (AttributeError, TypeError, ValueError):
+            self._slot_estimate = 0
+
+        if (
+            self._future_limit
+            and self._slot_estimate
+            and self.max_futures < self._slot_estimate
+        ):
+            print("=" * 60)
+            print(
+                f"WARNING: site.max_futures ({self.max_futures}) is below the "
+                f"{self._slot_estimate} worker slots this job requested "
+                f"({cfg.job.nodes_per_block} nodes x {workers} workers)."
+            )
+            print(
+                "Even if every outstanding future were immediately runnable, "
+                "the workers cannot all be kept busy. Raise site.max_futures."
+            )
+            print("=" * 60)
+
+        # Periodic progress/starvation report. See _monitor_loop.
+        self._monitor_interval = 60.0
+        # sample the interchange for its worker count every Nth tick; 0 disables
+        self._monitor_worker_interval = 5
+        self._monitor_stop = threading.Event()
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_loop, daemon=True
+        )
+        self._monitor_thread.start()
+
         # for lots of futures (>10k), set is much faster than list)
         self._completed_queue = queue.SimpleQueue()
         self.futures = set()
@@ -898,7 +951,7 @@ class WorkflowExecutor:
         self._db_batch_max_size = 5000
         self._db_batch_max_wait = 5.0
         self._db_backup_interval = 300.0
-        self._db_update_thread.start()
+        # thread is started below, once the connections it writes through exist
 
         # DB file is unique to settings used for the workflow, modulo the job
         # settings and number of subruns which could change on re-runs
@@ -935,6 +988,128 @@ class WorkflowExecutor:
             )
         """)
 
+        # Only now is it safe to run the writer: _backup_db_loop reaches for
+        # _mem_db and _disk_db, and previously it was started before either
+        # existed. It happened to be harmless because the loop blocks on an
+        # empty queue for _db_batch_max_wait first and no events are produced
+        # until execute() runs, but nothing enforced that.
+        self._db_update_thread.start()
+
+
+    def _parsl_executors(self) -> List[Any]:
+        """Live parsl executors, or [] when parsl is not loaded (dry runs, tests)."""
+        try:
+            import parsl
+
+            dfk = parsl.dfk()
+        except Exception:
+            return []
+        return [
+            ex
+            for label, ex in getattr(dfk, "executors", {}).items()
+            if not label.startswith("_")
+        ]
+
+    @staticmethod
+    def _read(executor, name):
+        """Read an executor attribute that may be a plain value or a method."""
+        attr = getattr(executor, name, None)
+        if attr is None:
+            return None
+        return attr() if callable(attr) else attr
+
+    def _runnable_task_count(self) -> Optional[int]:
+        """
+        Tasks parsl has handed to an executor, i.e. whose dependencies are met.
+
+        This is the number that matters: self.futures counts everything we have
+        submitted, most of which may still be blocked behind a parent stage.
+        Returns None when parsl is not loaded.
+        """
+        executors = self._parsl_executors()
+        if not executors:
+            return None
+        total = 0
+        for ex in executors:
+            n = self._read(ex, "outstanding")
+            if isinstance(n, int):
+                total += n
+        return total
+
+    def _connected_worker_count(self) -> Optional[int]:
+        """
+        Worker count reported by the interchange.
+
+        Costs a ZMQ round trip that rides the interchange's main event loop and
+        has no client-side timeout, so this is sampled on a slow cadence only.
+        """
+        for ex in self._parsl_executors():
+            n = self._read(ex, "connected_workers")
+            if isinstance(n, int):
+                return n
+        return None
+
+    def log_progress(self, with_workers: bool = False) -> None:
+        """Print one line of submitted-vs-runnable-vs-slots progress."""
+        runnable = self._runnable_task_count()
+        if runnable is None:
+            return
+
+        submitted = len(self.futures)
+        parts = [f"submitted={submitted}", f"runnable={runnable}"]
+        if self._slot_estimate:
+            parts.append(f"slots={self._slot_estimate}")
+            parts.append(f"fed={100.0 * runnable / self._slot_estimate:.0f}%")
+        parts.append(f"ok={self._success_counter}")
+        parts.append(f"fail={self._fail_counter}")
+        line = "Progress: " + "  ".join(parts)
+
+        # the failure mode that is otherwise invisible: the future budget is
+        # full, so the submit loop is blocked, yet most of those futures are
+        # waiting on a parent stage and the workers sit idle
+        if (
+            self._future_limit
+            and self._slot_estimate
+            and submitted >= self.max_futures
+            and runnable < self._slot_estimate
+        ):
+            line += (
+                "  [STARVED: future budget full but most of it is blocked on"
+                " dependencies; raise site.max_futures or shorten the chain]"
+            )
+        print(line)
+
+        if with_workers:
+            workers = self._connected_worker_count()
+            if workers is not None:
+                print(
+                    f"Progress: connected_workers={workers}"
+                    f" (requested {self._slot_estimate})"
+                )
+
+    def _monitor_loop(self) -> None:
+        """
+        Report progress every _monitor_interval seconds until the run finishes.
+
+        Reads shared state directly instead of going through a queue: everything
+        it needs is a set length or an int counter, both safe to read from
+        another thread. Routing it through _db_event_queue would make the report
+        queue behind sqlite writes and Lustre backups, which is exactly when it
+        is most worth having. It runs off the submit loop so that the one
+        expensive sample -- the interchange round trip for the worker count --
+        never stalls task submission.
+        """
+        ticks = 0
+        while not self._monitor_stop.wait(self._monitor_interval):
+            ticks += 1
+            with_workers = bool(self._monitor_worker_interval) and (
+                ticks % self._monitor_worker_interval == 0
+            )
+            try:
+                self.log_progress(with_workers=with_workers)
+            except Exception as e:
+                # diagnostics must never take the run down
+                print(f"Progress monitor error (ignored): {e}")
 
     def task_priority(self, stage) -> int:
         """
@@ -950,6 +1125,155 @@ class WorkflowExecutor:
         # stage_id gains one element per step back up the ancestry, so the
         # deepest ancestors -- the dependency-free first stages -- sort first
         return -len(stage.stage_id)
+
+    # ------------------------------------------------------------------
+    # Cache persistence. Lives here rather than on a subclass because this
+    # class owns the sqlite connections and the writer thread that uses them.
+    # ------------------------------------------------------------------
+
+    def _backup_db_loop(self):
+        pending_stage_updates = []
+        pending_workflow_ids = []
+
+        last_flush_time = time.time()
+        last_backup_time = [time.time()]
+
+        def _flush_db_batches():
+            """Perform batched DB writes for pending events."""
+            nonlocal pending_stage_updates
+            nonlocal pending_workflow_ids
+            if pending_stage_updates:
+                self.mark_stages_in_db(pending_stage_updates)
+            if pending_workflow_ids:
+                self.mark_workflows_in_db(pending_workflow_ids)
+            pending_stage_updates.clear()
+            pending_workflow_ids.clear()
+
+        while True:
+            timeout = self._db_batch_max_wait
+            try:
+                evt = self._db_event_queue.get(timeout=timeout)
+            except queue.Empty:
+                evt = None
+
+            if evt is not None:
+                if evt["type"] == "stage":
+                    pending_stage_updates.append((evt["stage_id"], evt["status"]))
+                elif evt["type"] == "stage_batch":
+                    for update in evt["updates"]:
+                        pending_stage_updates.append(update)
+                elif evt["type"] == "workflow":
+                    pending_workflow_ids.append(evt["workflow_id"])
+                else:
+                    raise RuntimeError(f"Got unsupported database event {evt['type']}")
+            elif self._db_worker_stop.is_set():
+                # Queue is empty and stop flag is set
+                break
+
+            now = time.time()
+            should_flush = (pending_stage_updates or pending_workflow_ids) and (
+                len(pending_stage_updates) >= self._db_batch_max_size
+                or (now - last_flush_time) >= self._db_batch_max_wait
+            )
+
+            if should_flush:
+                print(f"Writing {len(pending_stage_updates)} stage(s) to database")
+                _flush_db_batches()
+                last_flush_time = now
+
+                self._maybe_backup_db(
+                    force=False, last_backup_time_ref=last_backup_time
+                )
+                print("Done writing to database")
+
+        # Final flush of any remaining batched updates
+        _flush_db_batches()
+        # Final sync to disk
+        self.backup_db()
+
+        self._mem_db.close()
+        self._disk_db.close()
+
+    def backup_db(self, nretries: int = 5):
+        """Sync the in-memory database with the disk one.
+        Sometimes fails on lustre similar to this: https://github.com/CGATOxford/CGATPipelines/issues/39
+        """
+        nretries = max(0, nretries)
+        for i in range(nretries):
+            try:
+                self._mem_db.backup(self._disk_db)
+                return
+            except sqlite3.OperationalError as e:
+                if i < nretries - 1:
+                    print(f"Failed to sync database file! Retrying... ({i})")
+                    time.sleep(10)
+                    continue
+                raise e
+
+    def _maybe_backup_db(self, force: bool, last_backup_time_ref):
+        """Call backup_db every _db_backup_interval seconds or if forced.
+
+        last_backup_time_ref: single-element list [last_backup_time] so we can update it.
+        """
+        now = time.time()
+        last_backup_time = last_backup_time_ref[0]
+        if force or (now - last_backup_time) >= self._db_backup_interval:
+            self.backup_db()
+            last_backup_time_ref[0] = now
+
+    def stage_in_db(self, stage_id: str, require_success: bool = False) -> bool:
+        """Checks the sqlite database to see if a stage has been previously completed."""
+        with self._db_lock:
+            result = self._cursor.execute(
+                "SELECT status FROM stages WHERE stage_id=(?)", (stage_id,)
+            ).fetchone()
+
+        if result is None:
+            return False
+
+        if require_success:
+            return result[0] == 0
+        return True
+
+    def workflow_in_db(self, id_) -> bool:
+        """Checks the sqlite database to see if a workflow has been previously completed."""
+        with self._db_lock:
+            result = self._cursor.execute(
+                "SELECT 1 FROM workflows WHERE id=(?)", (id_,)
+            ).fetchone()
+        return result is not None
+
+    def mark_stage_in_db(self, stage_id, status: int = 0):
+        """Add or update the stage status in the database."""
+        self.mark_stages_in_db([(stage_id, status)])
+
+    def mark_stages_in_db(self, stages):
+        """Batch insert or update stage statuses in the database."""
+        if not stages:
+            return
+
+        with self._db_lock:
+            self._cursor.executemany(
+                "INSERT OR REPLACE INTO stages (stage_id, status) VALUES (?, ?)",
+                stages,
+            )
+            self._mem_db.commit()
+
+    def mark_workflow_in_db(self, id_):
+        """Mark a workflow as fully completed in the database."""
+        self.mark_workflows_in_db([id_])
+
+    def mark_workflows_in_db(self, ids):
+        """Batch insert completed workflow IDs into the database."""
+        if not ids:
+            return
+        rows = [(id_,) for id_ in ids]
+        with self._db_lock:
+            self._cursor.executemany(
+                "INSERT OR REPLACE INTO workflows (id) VALUES (?)",
+                rows,
+            )
+            self._mem_db.commit()
 
 
 class LArSoftExecutor(WorkflowExecutor):
@@ -1034,6 +1358,30 @@ class LArSoftExecutor(WorkflowExecutor):
 
         last_files = [None] * nworkers
 
+        def retire(idx: int) -> None:
+            """
+            Mark a workflow index as done and roll the batch window when the
+            current batch is exhausted.
+
+            Every path that adds to skip_idx must come through here. The cycle
+            only yields indices from the current window, so a window whose every
+            index has been skipped -- e.g. a contiguous run of workflows already
+            complete in the cache database, which is the normal case on a resume
+            -- would otherwise spin forever on `if idx in skip_idx: continue`.
+
+            Windows are built as range(done, done + nworkers) at a point where
+            done is a multiple of nworkers, and only indices in the current
+            window are ever visited, so done becoming a multiple of nworkers is
+            exactly the condition that the window has been exhausted.
+            """
+            nonlocal idx_cycle
+            skip_idx.add(idx)
+            done = len(skip_idx)
+            if done % nworkers == 0 and done < nsubruns:
+                idx_cycle = itertools.cycle(
+                    range(done, min(nsubruns, done + nworkers))
+                )
+
         while len(skip_idx) < nsubruns:
             idx = next(idx_cycle)
             if idx in skip_idx:
@@ -1048,7 +1396,7 @@ class LArSoftExecutor(WorkflowExecutor):
                         itertools.islice(file_generator, self.run_opts.files_per_subrun)
                     )
                     if not file_slice:
-                        skip_idx.add(idx)
+                        retire(idx)
                         continue
 
                 # critically, do this after we slice for files so that we
@@ -1056,7 +1404,7 @@ class LArSoftExecutor(WorkflowExecutor):
                 # workflow
                 if not self.dry_run and self.workflow_in_db(idx):
                     print(f"Skip workflow at index={idx}, found in db")
-                    skip_idx.add(idx)
+                    retire(idx)
                     continue
 
                 # wrapper calls the user's setup_single_workflow and sets its ID
@@ -1065,7 +1413,7 @@ class LArSoftExecutor(WorkflowExecutor):
                 )
                 # user can return None from setup_single_workflow to skip based on inputs
                 if this_wf is None:
-                    skip_idx.add(idx)
+                    retire(idx)
                     continue
 
                 wfs[idx] = this_wf
@@ -1094,13 +1442,8 @@ class LArSoftExecutor(WorkflowExecutor):
             try:
                 next(wfs[idx].get_next_task())
             except StopIteration:
-                skip_idx.add(idx)
-                done_workflows = len(skip_idx)
                 last_files[idx % nworkers] = wfs[idx]._get_last_file()
-                if done_workflows % nworkers == 0:
-                    idx_cycle = itertools.cycle(
-                        range(done_workflows, min(nsubruns, done_workflows + nworkers))
-                    )
+                retire(idx)
 
                 # let garbage collection happen
                 wfs[idx] = None
@@ -1110,6 +1453,7 @@ class LArSoftExecutor(WorkflowExecutor):
                 print(f"All tasks submitted, draining {len(self.futures)} tasks")
                 self.get_task_results(min_done=self._drain_batch, min_time=5)
 
+        self._monitor_stop.set()
         self._db_worker_stop.set()
         self._db_update_thread.join()
         print("Done")
@@ -1224,95 +1568,6 @@ class LArSoftExecutor(WorkflowExecutor):
         if verbose and (npass > 0 or nfail > 0):
             print(f"Futures [SUCCESS]/[FAILED]: {npass}/{nfail}")
 
-    def _backup_db_loop(self):
-        pending_stage_updates = []
-        pending_workflow_ids = []
-
-        last_flush_time = time.time()
-        last_backup_time = [time.time()]
-
-        def _flush_db_batches():
-            """Perform batched DB writes for pending events."""
-            nonlocal pending_stage_updates
-            nonlocal pending_workflow_ids
-            if pending_stage_updates:
-                self.mark_stages_in_db(pending_stage_updates)
-            if pending_workflow_ids:
-                self.mark_workflows_in_db(pending_workflow_ids)
-            pending_stage_updates.clear()
-            pending_workflow_ids.clear()
-
-        while True:
-            timeout = self._db_batch_max_wait
-            try:
-                evt = self._db_event_queue.get(timeout=timeout)
-            except queue.Empty:
-                evt = None
-
-            if evt is not None:
-                if evt["type"] == "stage":
-                    pending_stage_updates.append((evt["stage_id"], evt["status"]))
-                elif evt["type"] == "stage_batch":
-                    for update in evt["updates"]:
-                        pending_stage_updates.append(update)
-                elif evt["type"] == "workflow":
-                    pending_workflow_ids.append(evt["workflow_id"])
-                else:
-                    raise RuntimeError(f"Got unsupported database event {evt['type']}")
-            elif self._db_worker_stop.is_set():
-                # Queue is empty and stop flag is set
-                break
-
-            now = time.time()
-            should_flush = (pending_stage_updates or pending_workflow_ids) and (
-                len(pending_stage_updates) >= self._db_batch_max_size
-                or (now - last_flush_time) >= self._db_batch_max_wait
-            )
-
-            if should_flush:
-                print(f"Writing {len(pending_stage_updates)} stage(s) to database")
-                _flush_db_batches()
-                last_flush_time = now
-
-                self._maybe_backup_db(
-                    force=False, last_backup_time_ref=last_backup_time
-                )
-                print("Done writing to database")
-
-        # Final flush of any remaining batched updates
-        _flush_db_batches()
-        # Final sync to disk
-        self.backup_db()
-
-        self._mem_db.close()
-        self._disk_db.close()
-
-    def backup_db(self, nretries: int = 5):
-        """Sync the in-memory database with the disk one.
-        Sometimes fails on lustre similar to this: https://github.com/CGATOxford/CGATPipelines/issues/39
-        """
-        nretries = max(0, nretries)
-        for i in range(nretries):
-            try:
-                self._mem_db.backup(self._disk_db)
-                return
-            except sqlite3.OperationalError as e:
-                if i < nretries - 1:
-                    print(f"Failed to sync database file! Retrying... ({i})")
-                    time.sleep(10)
-                    continue
-                raise e
-
-    def _maybe_backup_db(self, force: bool, last_backup_time_ref):
-        """Call backup_db every _db_backup_interval seconds or if forced.
-
-        last_backup_time_ref: single-element list [last_backup_time] so we can update it.
-        """
-        now = time.time()
-        last_backup_time = last_backup_time_ref[0]
-        if force or (now - last_backup_time) >= self._db_backup_interval:
-            self.backup_db()
-            last_backup_time_ref[0] = now
 
     def setup_single_workflow_wrapper(
         self, iteration: int, inputs=None, last_file=None
@@ -1335,59 +1590,6 @@ class LArSoftExecutor(WorkflowExecutor):
         """
         pass
 
-    def stage_in_db(self, stage_id: str, require_success: bool = False) -> bool:
-        """Checks the sqlite database to see if a stage has been previously completed."""
-        with self._db_lock:
-            result = self._cursor.execute(
-                "SELECT status FROM stages WHERE stage_id=(?)", (stage_id,)
-            ).fetchone()
-
-        if result is None:
-            return False
-
-        if require_success:
-            return result[0] == 0
-        return True
-
-    def workflow_in_db(self, id_) -> bool:
-        """Checks the sqlite database to see if a workflow has been previously completed."""
-        with self._db_lock:
-            result = self._cursor.execute(
-                "SELECT 1 FROM workflows WHERE id=(?)", (id_,)
-            ).fetchone()
-        return result is not None
-
-    def mark_stage_in_db(self, stage_id, status: int = 0):
-        """Add or update the stage status in the database."""
-        self.mark_stages_in_db([(stage_id, status)])
-
-    def mark_stages_in_db(self, stages):
-        """Batch insert or update stage statuses in the database."""
-        if not stages:
-            return
-
-        with self._db_lock:
-            self._cursor.executemany(
-                "INSERT OR REPLACE INTO stages (stage_id, status) VALUES (?, ?)",
-                stages,
-            )
-            self._mem_db.commit()
-
-    def mark_workflow_in_db(self, id_):
-        """Mark a workflow as fully completed in the database."""
-        self.mark_workflows_in_db([id_])
-
-    def mark_workflows_in_db(self, ids):
-        """Batch insert completed workflow IDs into the database."""
-        if not ids:
-            return
-        rows = [(id_,) for id_ in ids]
-        with self._db_lock:
-            self._cursor.executemany(
-                "INSERT OR REPLACE INTO workflows (id) VALUES (?)",
-                rows,
-            )
-            self._mem_db.commit()
 
 
 if __name__ == "__main__":

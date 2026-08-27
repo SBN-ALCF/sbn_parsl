@@ -8,14 +8,15 @@ launcher_options = "--ppn 1 --depth=104 --cpu-bind depth"
 cpu_affinity = "aurora"
 available_accelerators = 102
 pbs_filesystems = "home:flare"
-# Cap on outstanding parsl futures. This budgets *submitted* futures, not
-# runnable ones, so it has to cover the dependency-blocked ones too. Size it as
-#   (nodes x max_workers_per_node) x (futures submitted per workflow advance)
-# At 2048 nodes x 102 workers, with an advance that submits 3 futures of which
-# only 1 is runnable (gen, then detsim and reco1 waiting on it), that is 626688.
-# The previous 300000 capped concurrency at 300000/3 = 100000 tasks, i.e. 48% of
-# the 208896 available slots, regardless of how much work was queued.
-max_futures = 650000
+# Cap on outstanding parsl futures. run_stage submits exactly one future per
+# advance, so this is roughly the number of workflows in flight and -- for a
+# serial dependency chain, where each workflow contributes one runnable task --
+# the number of tasks that can actually be dispatched. Size it just above the
+# slot count: nodes x max_workers_per_node, here 2048 x 102 = 208896, so 250000
+# keeps every slot fed with ~20% spare. Each workflow in flight also costs about
+# 16 KiB of driver memory (~3.8 GiB at this setting), which is the reason not to
+# set it far higher than the slot count.
+max_futures = 250000
 worker_init = [
     "export TMPDIR=/tmp/",
 ]

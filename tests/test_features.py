@@ -463,3 +463,267 @@ def test_output_check_ignored_in_dry_run(tmp_path):
     assert executor._file_skip_counter == 0
     assert result.outputs
     assert is_file.call_count == 0, "dry-run guard must short-circuit before the stat"
+
+
+def _run_execute(nsubruns, nworkers, cached=(), advances_per_wf=3):
+    """
+    Drive the real LArSoftExecutor.execute() over stub workflows.
+
+    Returns the order of workflow indices that were advanced. Raises if the loop
+    fails to terminate, which is the failure mode when the batch window cannot
+    roll past a fully cached batch.
+    """
+    import threading
+    import types
+    from sbn_parsl.config import RunConfig, JobConfig, WorkflowConfig
+    from sbn_parsl.workflow import LArSoftExecutor
+
+    ex = LArSoftExecutor.__new__(LArSoftExecutor)
+    ex.cfg = Config(
+        site=MagicMock(spec=SiteConfig),
+        job=MagicMock(spec=JobConfig),
+        workflow=MagicMock(spec=WorkflowConfig),
+        run=RunConfig(output="/tmp/out", nsubruns=nsubruns),
+    )
+    ex.run_opts = ex.cfg.run
+    ex.dry_run = False
+    ex.futures = set()
+    ex.max_futures = -1
+    ex._future_limit = False
+    ex._drain_batch = 1
+    ex._completed_queue = __import__("queue").SimpleQueue()
+    ex._workflow_counters = {}
+    ex._stage_counter = ex._skip_counter = 0
+    ex._success_counter = ex._fail_counter = ex._file_skip_counter = 0
+    ex._db_worker_stop = threading.Event()
+    ex._db_update_thread = MagicMock()
+    ex._monitor_stop = threading.Event()
+    ex.workflow_in_db = lambda idx: idx in cached
+
+    advanced = []
+
+    def make_wf(idx):
+        left = [advances_per_wf]
+
+        def get_next_task():
+            if left[0] <= 0:
+                return
+            left[0] -= 1
+            advanced.append(idx)
+            yield
+
+        return types.SimpleNamespace(
+            _id=idx,
+            n_final_stages=1,
+            get_next_task=get_next_task,
+            _get_last_file=lambda: None,
+        )
+
+    ex.setup_single_workflow_wrapper = lambda idx, inputs=None, last_file=None: make_wf(idx)
+
+    # a spinning loop would hang the suite, so bound it with a watchdog
+    done = threading.Event()
+    err = []
+
+    def target():
+        try:
+            ex.execute(nworkers=nworkers)
+        except BaseException as e:  # noqa: BLE001
+            err.append(e)
+        finally:
+            done.set()
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    if not done.wait(timeout=20):
+        raise AssertionError(
+            f"execute() did not terminate (nsubruns={nsubruns}, -c {nworkers}, "
+            f"cached={sorted(cached)}); {len(advanced)} advances made"
+        )
+    if err:
+        raise err[0]
+    return advanced
+
+
+def test_execute_completes_with_nothing_cached():
+    advanced = _run_execute(12, 4)
+    assert sorted(set(advanced)) == list(range(12))
+    assert len(advanced) == 36
+
+
+def test_execute_rolls_past_a_fully_cached_batch():
+    """
+    A contiguous run of already-complete workflows is the normal case on a
+    resume. The batch window has to roll past it, or the cycle keeps yielding
+    indices that are all in skip_idx and the loop spins forever.
+    """
+    advanced = _run_execute(12, 4, cached=set(range(4)))
+    assert sorted(set(advanced)) == list(range(4, 12))
+    assert 0 not in advanced
+
+
+def test_execute_rolls_past_a_cached_middle_batch():
+    advanced = _run_execute(12, 4, cached=set(range(4, 8)))
+    assert sorted(set(advanced)) == [0, 1, 2, 3, 8, 9, 10, 11]
+
+
+def test_execute_handles_every_workflow_cached():
+    advanced = _run_execute(12, 4, cached=set(range(12)))
+    assert advanced == []
+
+
+def test_execute_single_workflow_batch_with_cache():
+    """-c 1 is the most exposed case: one cached workflow is a whole batch."""
+    advanced = _run_execute(6, 1, cached={0, 1})
+    assert sorted(set(advanced)) == [2, 3, 4, 5]
+
+
+def test_execute_scattered_cache():
+    advanced = _run_execute(12, 4, cached={0, 5, 11})
+    assert sorted(set(advanced)) == [1, 2, 3, 4, 6, 7, 8, 9, 10]
+
+
+def _progress_executor(max_futures, slots, submitted, runnable, workers=None):
+    """Build a bare executor with just what log_progress reads."""
+    import types
+    from sbn_parsl.workflow import WorkflowExecutor
+
+    ex = WorkflowExecutor.__new__(WorkflowExecutor)
+    ex.max_futures = max_futures
+    ex._future_limit = max_futures >= 0
+    ex._slot_estimate = slots
+    ex.futures = set(range(submitted))
+    ex._success_counter = 7
+    ex._fail_counter = 1
+    fake = types.SimpleNamespace(
+        outstanding=lambda: runnable,
+        connected_workers=lambda: workers,
+    )
+    ex._parsl_executors = lambda: [fake]
+    return ex
+
+
+def test_log_progress_flags_starvation(capsys):
+    """Budget full but most of it blocked on dependencies: the invisible failure."""
+    ex = _progress_executor(max_futures=300, slots=200, submitted=300, runnable=100)
+    ex.log_progress()
+    out = capsys.readouterr().out
+    assert "submitted=300" in out
+    assert "runnable=100" in out
+    assert "slots=200" in out
+    assert "fed=50%" in out
+    assert "STARVED" in out
+
+
+def test_log_progress_quiet_when_healthy(capsys):
+    """Budget full but enough runnable work to feed every slot: no warning."""
+    ex = _progress_executor(max_futures=300, slots=200, submitted=300, runnable=250)
+    ex.log_progress()
+    out = capsys.readouterr().out
+    assert "fed=125%" in out
+    assert "STARVED" not in out
+
+
+def test_log_progress_no_warning_below_the_cap(capsys):
+    """Under the cap the submit loop is free to catch up, so this is not starvation."""
+    ex = _progress_executor(max_futures=300, slots=200, submitted=50, runnable=40)
+    ex.log_progress()
+    assert "STARVED" not in capsys.readouterr().out
+
+
+def test_log_progress_samples_workers_only_when_asked(capsys):
+    ex = _progress_executor(300, 200, 300, 250, workers=198)
+    ex.log_progress()
+    assert "connected_workers" not in capsys.readouterr().out
+    ex.log_progress(with_workers=True)
+    out = capsys.readouterr().out
+    assert "connected_workers=198" in out and "requested 200" in out
+
+
+def test_log_progress_silent_without_parsl(capsys):
+    """Dry runs and tests have no parsl loaded; the monitor must stay quiet."""
+    ex = _progress_executor(300, 200, 300, 100)
+    ex._parsl_executors = lambda: []
+    ex.log_progress()
+    assert capsys.readouterr().out == ""
+
+
+def _real_executor(tmp_path, max_futures, nodes, cpus_per_node):
+    """Construct a real WorkflowExecutor against a tmp output dir."""
+    from sbn_parsl.config import RunConfig, JobConfig, WorkflowConfig
+    from sbn_parsl.workflow import LArSoftExecutor
+
+    cfg = Config(
+        site=SiteConfig(
+            name="test", cpus_per_node=cpus_per_node, cores_per_worker=1,
+            max_futures=max_futures,
+        ),
+        job=JobConfig(nodes_per_block=nodes),
+        workflow=WorkflowConfig(),
+        run=RunConfig(output=str(tmp_path)),
+        larsoft=LArSoftConfig(experiment="sbnd", version="v1", qual="e26"),
+    )
+    # WorkflowExecutor.__init__ starts a thread targeting _backup_db_loop, which
+    # is defined on the subclass, so the base class is not instantiable alone
+    ex = LArSoftExecutor(cfg)
+    ex._monitor_stop.set()          # do not leave the monitor ticking in tests
+    ex._db_worker_stop.set()
+    return ex
+
+
+def test_startup_warns_when_budget_cannot_fill_the_machine(tmp_path, capsys):
+    """max_futures below the slot count means guaranteed idle workers."""
+    ex = _real_executor(tmp_path, max_futures=1000, nodes=64, cpus_per_node=102)
+    out = capsys.readouterr().out
+    assert ex._slot_estimate == 64 * 102
+    assert "WARNING" in out and "max_futures (1000)" in out
+    assert "6528 worker slots" in out
+
+
+def test_startup_quiet_when_budget_exceeds_slots(tmp_path, capsys):
+    ex = _real_executor(tmp_path, max_futures=250000, nodes=2048, cpus_per_node=102)
+    out = capsys.readouterr().out
+    assert ex._slot_estimate == 208896
+    assert "WARNING" not in out
+
+
+def test_startup_quiet_when_future_limit_disabled(tmp_path, capsys):
+    ex = _real_executor(tmp_path, max_futures=-1, nodes=2048, cpus_per_node=102)
+    assert ex._future_limit is False
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_workflow_executor_is_usable_on_its_own(tmp_path):
+    """
+    WorkflowExecutor owns the sqlite connections and the writer thread, so it
+    must also own the persistence methods that thread runs. It previously
+    started a thread targeting _backup_db_loop, which was defined on
+    LArSoftExecutor, so constructing the base class raised AttributeError.
+    """
+    from sbn_parsl.config import RunConfig, JobConfig, WorkflowConfig
+    from sbn_parsl.workflow import WorkflowExecutor
+
+    cfg = Config(
+        site=SiteConfig(name="test", cpus_per_node=8, cores_per_worker=1,
+                        max_futures=1000),
+        job=JobConfig(nodes_per_block=1),
+        workflow=WorkflowConfig(),
+        run=RunConfig(output=str(tmp_path)),
+    )
+    ex = WorkflowExecutor(cfg)
+    try:
+        # the persistence layer must be reachable from the base class
+        assert ex.stage_in_db("nope") is False
+        ex.mark_stage_in_db("wf0_0_0", status=0)
+        assert ex.stage_in_db("wf0_0_0", require_success=True) is True
+        assert ex.workflow_in_db(0) is False
+        ex.mark_workflow_in_db(0)
+        assert ex.workflow_in_db(0) is True
+        # and the writer thread must be running, not merely constructed
+        assert ex._db_update_thread.is_alive()
+    finally:
+        ex._monitor_stop.set()
+        ex._db_worker_stop.set()
+        ex._db_update_thread.join(timeout=30)
+    assert not ex._db_update_thread.is_alive()
+    assert ex._db_file.exists()

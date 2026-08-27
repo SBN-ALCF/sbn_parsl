@@ -147,7 +147,10 @@ def test_combine():
         except StopIteration:
             break
 
-    assert runs == 2
+    # run_stage yields once per task submitted. Every stage here is combined, so
+    # nothing is submitted at all and the single advance is the super stage
+    # reporting the workflow finished.
+    assert runs == 1
 
 
 def test_is_first():
@@ -168,3 +171,103 @@ def test_is_first():
 
     assert s2.is_first() is True
     assert s1.is_first() is False
+
+
+def _futures_per_advance(combined):
+    """
+    Drive a gen->g4->detsim->reco1->reco2->caf chain and report how many tasks
+    each next() on the workflow submits, with `combined` stages marked combine.
+    """
+    from sbn_parsl.workflow import StageResult
+
+    order = [
+        DefaultStageTypes.GEN,
+        DefaultStageTypes.G4,
+        DefaultStageTypes.DETSIM,
+        DefaultStageTypes.RECO1,
+        DefaultStageTypes.RECO2,
+        DefaultStageTypes.CAF,
+    ]
+    submitted = []
+
+    def runfunc(self, fcl, parent_result, output_dir):
+        out = f"{self.stage_type.name}.root"
+        if self.combine:
+            # a combined stage hands its command to its child, it submits nothing
+            return StageResult(outputs=[out], command="cmd")
+        submitted.append(self.stage_type.name)
+        return StageResult(outputs=[out])
+
+    workflow = Workflow(
+        order, {k: f"{k.name}.fcl" for k in order}, runfunc=runfunc
+    )
+    caf = Stage(DefaultStageTypes.CAF, fcl="caf.fcl")
+    caf.runfunc = runfunc
+    workflow.add_final_stage(caf)
+
+    stages = {"caf": caf}
+    prev = caf
+    for stage_type, name in (
+        (DefaultStageTypes.RECO2, "reco2"),
+        (DefaultStageTypes.RECO1, "reco1"),
+        (DefaultStageTypes.DETSIM, "detsim"),
+        (DefaultStageTypes.G4, "g4"),
+        (DefaultStageTypes.GEN, "gen"),
+    ):
+        s = Stage(stage_type)
+        prev.add_parents(s)
+        stages[name] = s
+        prev = s
+    for name in combined:
+        stages[name].combine = True
+    workflow._finalize()
+
+    per_advance = []
+    while True:
+        before = len(submitted)
+        try:
+            next(workflow.get_next_task())
+        except StopIteration:
+            break
+        per_advance.append(len(submitted) - before)
+    return per_advance, submitted
+
+
+@pytest.mark.parametrize(
+    "combined",
+    [(), ("gen",), ("g4",), ("detsim",), ("reco1",), ("reco2",),
+     ("g4", "reco2"), ("gen", "g4"), ("detsim", "reco2")],
+)
+def test_one_task_submitted_per_advance(combined):
+    """
+    run_stage must yield once per submitted task, whatever the combine layout.
+
+    Guarding the ancestor yield on combine instead made a combined stage swallow
+    its whole ancestry's yields, so a single advance submitted every stage
+    beneath it. That inflated the futures the executor holds per workflow and
+    left most of them blocked on dependencies, capping worker occupancy.
+    """
+    per_advance, submitted = _futures_per_advance(combined)
+    assert max(per_advance) <= 1, (
+        f"combine={combined} submitted {max(per_advance)} tasks in one advance: "
+        f"{per_advance}"
+    )
+    # combined stages fold into their child, so they never submit
+    expected = [s for s in ("gen", "g4", "detsim", "reco1", "reco2", "caf")
+                if s not in combined]
+    assert submitted == expected
+
+
+@pytest.mark.parametrize("combined", [(), ("gen",), ("g4",), ("g4", "reco2")])
+def test_no_advance_is_wasted(combined):
+    """
+    Only the final advance may submit nothing -- that one is the super stage
+    reporting the workflow finished. A combined stage submits nothing, so it
+    must not yield for its own run either, or the executor burns a trip through
+    its round-robin on a workflow that handed it no task.
+    """
+    per_advance, _ = _futures_per_advance(combined)
+    assert per_advance[-1] == 0, "expected a trailing super-stage advance"
+    assert 0 not in per_advance[:-1], (
+        f"combine={combined} wasted an advance: {per_advance}"
+    )
