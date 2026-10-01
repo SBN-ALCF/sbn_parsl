@@ -262,7 +262,7 @@ def create_parsl_config(cfg: Config, local: bool = False):
 
     config = ParslConfig(
         memoizer=BasicMemoizer(
-            checkpoint_mode="task_exit",
+            checkpoint_mode=None,
             checkpoint_files=checkpoints,
         ),
         executors=[executor],
