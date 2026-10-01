@@ -337,9 +337,17 @@ def larsoft_runfunc(
         executor._file_skip_counter += 1
         return StageResult(outputs=[context.output_file])
 
-    # clean any input files that are in /tmp after this stage completes
+    # clean any combined-stage scratch inputs in /tmp after this stage
+    # completes. Inputs under the output directory are real stage outputs and
+    # must survive, even when that directory is itself in /tmp (a DAOS dfuse
+    # mount lives at /tmp/<pool>/<cont>).
+    out_root = pathlib.PurePosixPath(executor.output_dir)
     rm_cmd = "\n".join(
-        [f"rm {f}" for f in context.input_files if str(f).startswith("/tmp/")]
+        [
+            f"rm {f}"
+            for f in context.input_files
+            if str(f).startswith("/tmp/") and not f.is_relative_to(out_root)
+        ]
     )
 
     cmd = "\n".join(

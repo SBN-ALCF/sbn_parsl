@@ -892,22 +892,15 @@ class WorkflowExecutor:
         self.cfg = cfg
         self.run_opts = cfg.run
 
-        self.runinfo_dir = pathlib.Path(cfg.run.runinfo or cfg.run.output)
+        # Driver-side bookkeeping (cache database, launch marker) lives under
+        # runinfo_dir, which must be visible to the driver. output_dir is where
+        # workers write stage outputs; with DAOS it is a dfuse mount that only
+        # exists on the compute nodes, so the driver must not touch it.
+        self.runinfo_dir = pathlib.Path(cfg.run.runinfo or cfg.run.output) / "runinfo"
         self.output_dir = pathlib.Path(cfg.run.output)
 
-        try:
+        if not cfg.run.daos:
             self.output_dir.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            if cfg.run.daos:
-                daos_container_dir = str(self.output_dir)
-                username = os.getenv("USER")
-                daos_container_dir = pathlib.Path(
-                    daos_container_dir.replace("/tmp", f"/tmp/{username}")
-                )
-                print(f"{daos_container_dir=}")
-                daos_container_dir.mkdir(parents=True, exist_ok=True)
-            else:
-                raise
 
         self.task_order = cfg.run.task_order
         if self.task_order not in TASK_ORDERS:
@@ -1014,15 +1007,9 @@ class WorkflowExecutor:
         # settings and number of subruns which could change on re-runs
         db_suffix = cfg.get_science_hash()
 
-        self._db_file = (
-            self.output_dir / "runinfo" / "cmd" / f"file_cache_{db_suffix}.db"
-        )
+        self._db_file = self.runinfo_dir / "cmd" / f"file_cache_{db_suffix}.db"
         print(f"Cache will be saved to {self._db_file}")
         self._db_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Mark that the workflow has actually started executing
-        launched_marker = self.runinfo_dir / ".launched"
-        launched_marker.touch(exist_ok=True)
 
         self._disk_db = sqlite3.connect(str(self._db_file), check_same_thread=False)
         self._mem_db = sqlite3.connect(":memory:", check_same_thread=False)
@@ -1051,6 +1038,11 @@ class WorkflowExecutor:
         # until execute() runs, but nothing enforced that.
         self._db_update_thread.start()
 
+
+    def _mark_launched(self):
+        """Mark that the workflow has actually started executing, which arms
+        the science-hash compatibility check in app.entry_point on resume."""
+        (self.runinfo_dir / ".launched").touch(exist_ok=True)
 
     def _parsl_executors(self) -> List[Any]:
         """Live parsl executors, or [] when parsl is not loaded (dry runs, tests)."""
@@ -1433,6 +1425,8 @@ class LArSoftExecutor(WorkflowExecutor):
         if self.dry_run:
             print(f"DRY RUN: Processing first {min(nsubruns, 3)} subruns...")
             nsubruns = min(nsubruns, 3)
+        else:
+            self._mark_launched()
 
         file_generator = None
         by_file = False

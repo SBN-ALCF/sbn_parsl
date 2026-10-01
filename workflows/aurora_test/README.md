@@ -58,11 +58,15 @@ ls /tmp/${USER}/gpu_hack/sbnd # to see contents
 
 To launch workflow and write outputs to DAOS, use this command:
 ```
-python sbnd_mc.py sbnd_mc_particlebomb_512nodes.json --daos -o /tmp/gpu_hack/sbnd/$PWD/outputs -r $PWD/outputs
+python sbnd_mc.py <settings>.toml --daos --daos-pool gpu_hack --daos-cont sbnd -o /tmp/gpu_hack/sbnd/$PWD/outputs -r $PWD/outputs
 ```
-For this example, the `runinfo` directory with parsl logging will be written to `$PWD/outputs` on lustre and workers running `lar` will write to `/tmp/gpu_hack/sbnd/$PWD/outputs` on compute nodes.
+The pool and container can also be set as `daos_pool` and `daos_cont` under `[job]` in the settings file. `-r` is required with `--daos`.
 
-Note that with how the DAOS container is mounted on compute nodes at scale with `launch-dfuse.sh`, the container will be at the path `/tmp/gpu_hack/sbnd` on the compute nodes.
+For this example, the `runinfo` directory (parsl logs, the file cache database and the `.launched` marker) will be written to `$PWD/outputs` on lustre, and workers running `lar` will write to `/tmp/gpu_hack/sbnd/$PWD/outputs` on compute nodes. The driver never touches the DAOS path, since the container is not mounted where the driver runs.
+
+Note that with how the DAOS container is mounted on compute nodes at scale with `launch-dfuse.sh`, the container will be at the path `/tmp/<pool>/<cont>` (here `/tmp/gpu_hack/sbnd`) on the compute nodes. A warning is printed if `-o` is not under that path.
+
+`--check-existing-outputs` is disabled with `--daos`, because the driver cannot stat files on the DAOS mount.
 
 ## Outputs
 

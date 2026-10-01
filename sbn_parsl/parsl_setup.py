@@ -1,3 +1,4 @@
+import re
 import socket
 import pathlib
 import os
@@ -116,6 +117,8 @@ def create_provider_by_hostname(cfg: Config, local: bool = False):
     if cfg.run.daos:
         daos_pool = cfg.job.daos_pool
         daos_cont = cfg.job.daos_cont
+        if not daos_pool or not daos_cont:
+            raise ValueError("run.daos requires job.daos_pool and job.daos_cont")
         daos_cmds = [
             "module use /soft/modulefiles",
             "module load daos",
@@ -245,12 +248,36 @@ def create_executor_by_hostname(cfg: Config, provider):
     return HighThroughputExecutor(**exec_kwargs)
 
 
+DAOS_FILESYSTEM = "daos_user_fs"
+
+
+def add_daos_filesystem(cfg: Config):
+    """Request the DAOS filesystem from PBS. Updates both pbs_filesystems (used
+    by the --local submit script) and the filesystems directive inside
+    scheduler_options (used by the PBS provider). Safe to call repeatedly."""
+    fs = [f for f in cfg.site.pbs_filesystems.split(":") if f]
+    if DAOS_FILESYSTEM not in fs:
+        fs.append(DAOS_FILESYSTEM)
+    cfg.site.pbs_filesystems = ":".join(fs)
+
+    pattern = re.compile(r"^(#PBS\s+-l\s+filesystems=)(\S*)", re.MULTILINE)
+
+    def _add(match):
+        existing = [f for f in match.group(2).split(":") if f]
+        if DAOS_FILESYSTEM not in existing:
+            existing.append(DAOS_FILESYSTEM)
+        return match.group(1) + ":".join(existing)
+
+    opts, nsub = pattern.subn(_add, cfg.site.scheduler_options)
+    if nsub == 0:
+        directive = f"#PBS -l filesystems={cfg.site.pbs_filesystems}"
+        opts = f"{opts}\n{directive}" if opts else directive
+    cfg.site.scheduler_options = opts
+
+
 def create_parsl_config(cfg: Config, local: bool = False):
     if cfg.run.daos:
-        # This modification of cfg.site is a bit messy, but follows old logic
-        cfg.site.pbs_filesystems += ":daos_user_fs"
-        if cfg.site.scheduler_options:
-            cfg.site.scheduler_options += ":daos_user_fs"
+        add_daos_filesystem(cfg)
 
     provider = create_provider_by_hostname(cfg, local)
     executor = create_executor_by_hostname(cfg, provider)

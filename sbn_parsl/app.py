@@ -7,7 +7,12 @@ from datetime import datetime
 
 import parsl
 
-from sbn_parsl.parsl_setup import create_parsl_config, detect_active_env, _worker_init
+from sbn_parsl.parsl_setup import (
+    create_parsl_config,
+    detect_active_env,
+    _worker_init,
+    add_daos_filesystem,
+)
 from sbn_parsl.dfk_hacks import apply_hacks
 from sbn_parsl.config import Config
 
@@ -31,6 +36,8 @@ def parse_arguments(argv):
     parser.add_argument(
         "--daos", action="store_true", help="Use DAOS for output storage", default=False
     )
+    parser.add_argument("--daos-pool", help="DAOS pool to mount (with --daos)")
+    parser.add_argument("--daos-cont", help="DAOS container to mount (with --daos)")
     parser.add_argument(
         "-o", "--output-dir", dest="output", help="Directory for outputs", required=True
     )
@@ -130,6 +137,44 @@ def print_config_summary(cfg: Config):
     print("=" * 60)
 
 
+def check_daos_config(cfg: Config) -> bool:
+    """Validate DAOS settings before anything is submitted. Returns False and
+    prints the reason if the run cannot proceed."""
+    pool, cont = cfg.job.daos_pool, cfg.job.daos_cont
+    if not pool or not cont:
+        print(
+            "FATAL: --daos requires a DAOS pool and container. Set them with "
+            "--daos-pool/--daos-cont or daos_pool/daos_cont under [job]."
+        )
+        return False
+
+    if cfg.run.runinfo is None:
+        # runinfo holds the cache database and parsl logs, which the driver
+        # reads and writes. The DAOS mount only exists on compute nodes.
+        print(
+            "FATAL: --daos requires -r/--runinfo-dir on a filesystem the driver "
+            "can see (e.g. Lustre). The DAOS mount is only present on compute nodes."
+        )
+        return False
+
+    # launch-dfuse.sh mounts the container at /tmp/<pool>/<cont> on compute nodes
+    mount = pathlib.PurePosixPath("/tmp", pool, cont)
+    if not pathlib.PurePosixPath(cfg.run.output).is_relative_to(mount):
+        print(
+            f"WARNING: --daos output directory {cfg.run.output} is not under the "
+            f"compute-node DAOS mount {mount}. Outputs will not be written to DAOS."
+        )
+
+    if cfg.run.check_existing_outputs:
+        print(
+            "WARNING: --check-existing-outputs is ignored with --daos: the driver "
+            "cannot see the DAOS mount, so every check would miss."
+        )
+        cfg.run.check_existing_outputs = False
+
+    return True
+
+
 def entry_point(argv, wfe_class):
     """Provide common setup and execution for sbn_parsl workflows using parsed args."""
     if isinstance(argv, list):
@@ -143,6 +188,8 @@ def entry_point(argv, wfe_class):
         "queue": args.queue,
         "walltime": args.walltime,
         "nodes_per_block": args.nodes_per_block,
+        "daos_pool": args.daos_pool,
+        "daos_cont": args.daos_cont,
     }
     run_overrides = {
         "output": args.output,
@@ -160,6 +207,11 @@ def entry_point(argv, wfe_class):
         run_overrides=run_overrides,
         force=args.force,
     )
+
+    if cfg.run.daos:
+        if not check_daos_config(cfg):
+            return
+        add_daos_filesystem(cfg)
 
     # Set runinfo dir early for validation
     runinfo_base = pathlib.Path(cfg.run.runinfo or cfg.run.output)
@@ -205,10 +257,6 @@ def entry_point(argv, wfe_class):
     if args.local:
         cfg.site.max_futures = -1
 
-    # If using daos, runinfo must be set
-    if cfg.run.runinfo is None and cfg.run.daos is True:
-        # Fallback to output if not provided, though old code required it
-        cfg.run.runinfo = cfg.run.output
 
     cycle = args.cycle if args.cycle is not None else -1
 
@@ -256,6 +304,10 @@ def entry_point(argv, wfe_class):
                 extra_args.append(f"--site {args.site}")
             if args.daos:
                 extra_args.append("--daos")
+            if args.daos_pool:
+                extra_args.append(f"--daos-pool {args.daos_pool}")
+            if args.daos_cont:
+                extra_args.append(f"--daos-cont {args.daos_cont}")
             if args.runinfo:
                 extra_args.append(f"-r {pathlib.Path(args.runinfo).resolve()}")
             if args.cycle is not None:
@@ -287,6 +339,11 @@ def entry_point(argv, wfe_class):
                 nodes_per_block=cfg.job.nodes_per_block,
                 cpus_per_node=cfg.site.cpus_per_node,
                 hostfile_cmd=hostfile_cmd,
+                filesystems_cmd=(
+                    f"#PBS -l filesystems={cfg.site.pbs_filesystems}"
+                    if cfg.site.pbs_filesystems
+                    else ""
+                ),
                 worker_init=worker_init,
                 extra_args=extra_args_str,
             )
@@ -335,7 +392,7 @@ LOCAL_TEMPLATE = r"""#!/bin/bash
 #PBS -l select={nodes_per_block}:ncpus={cpus_per_node}
 #PBS -o {stdout}
 #PBS -e {stderr}
-#PBS -l filesystems=home:flare
+{filesystems_cmd}
 
 OUTDIR={cmd_dir}
 mkdir -p $OUTDIR

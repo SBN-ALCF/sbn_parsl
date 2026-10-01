@@ -497,6 +497,7 @@ def _run_execute(nsubruns, nworkers, cached=(), advances_per_wf=3):
     ex._success_counter = ex._fail_counter = ex._file_skip_counter = 0
     ex._db_worker_stop = threading.Event()
     ex._db_update_thread = MagicMock()
+    ex._mark_launched = lambda: None
     ex._monitor_stop = threading.Event()
     ex.workflow_in_db = lambda idx: idx in cached
 
