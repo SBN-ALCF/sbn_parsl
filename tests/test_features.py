@@ -727,3 +727,149 @@ def test_workflow_executor_is_usable_on_its_own(tmp_path):
         ex._db_update_thread.join(timeout=30)
     assert not ex._db_update_thread.is_alive()
     assert ex._db_file.exists()
+
+
+def _base_executor(tmp_path):
+    """A WorkflowExecutor with the monitor silenced, for cache-database tests."""
+    from sbn_parsl.config import RunConfig, JobConfig, WorkflowConfig
+    from sbn_parsl.workflow import WorkflowExecutor
+
+    cfg = Config(
+        site=SiteConfig(name="test", cpus_per_node=8, cores_per_worker=1,
+                        max_futures=1000),
+        job=JobConfig(nodes_per_block=1),
+        workflow=WorkflowConfig(),
+        run=RunConfig(output=str(tmp_path)),
+    )
+    ex = WorkflowExecutor(cfg)
+    ex._monitor_stop.set()
+    return ex
+
+
+def _shutdown(ex):
+    ex._db_worker_stop.set()
+    ex._db_update_thread.join(timeout=30)
+
+
+def _read_disk_cache(db_file):
+    """
+    Open the on-disk cache independently of the executor's connections.
+
+    Only valid once the executor has shut down: the disk connection runs in
+    locking_mode=EXCLUSIVE, so while a run is live this would raise
+    "database is locked".
+    """
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_file))
+    try:
+        stages = dict(conn.execute("SELECT stage_id, status FROM stages"))
+        workflows = {row[0] for row in conn.execute("SELECT id FROM workflows")}
+    finally:
+        conn.close()
+    return stages, workflows
+
+
+def _read_executor_disk_cache(ex):
+    """Read the disk copy through the executor's own connection, mid-run."""
+    stages = dict(ex._disk_db.execute("SELECT stage_id, status FROM stages"))
+    workflows = {row[0] for row in ex._disk_db.execute("SELECT id FROM workflows")}
+    return stages, workflows
+
+
+def test_cache_reaches_disk_before_shutdown(tmp_path):
+    """
+    Stage results are written through to the disk copy as they are recorded,
+    not only by a wholesale backup. Previously the disk file stayed empty until
+    backup_db() ran, so the cost of persisting anything was O(whole table) and
+    it blocked the submit loop's stage_in_db() reads for the duration.
+    """
+    ex = _base_executor(tmp_path)
+    try:
+        ex.mark_stages_in_db([("wf0_0_0", 0), ("wf0_0_1", 1)])
+        ex.mark_workflow_in_db(7)
+
+        # no backup_db() call, and the writer thread is still running
+        stages, workflows = _read_executor_disk_cache(ex)
+        assert stages == {"wf0_0_0": 0, "wf0_0_1": 1}
+        assert workflows == {7}
+        assert ex._disk_dirty is False
+    finally:
+        _shutdown(ex)
+
+    # and it is really in the file, not just in that connection's view
+    assert _read_disk_cache(ex._db_file) == ({"wf0_0_0": 0, "wf0_0_1": 1}, {7})
+
+
+def test_fresh_disk_cache_has_schema(tmp_path):
+    """
+    A brand new output dir starts with an empty disk database, and __init__
+    copies disk -> mem, so nothing creates the disk copy's tables on that path.
+    Write-through cannot wait for a backup to carry the schema across.
+    """
+    ex = _base_executor(tmp_path)
+    try:
+        names = {
+            row[0]
+            for row in ex._disk_db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert {"stages", "workflows"} <= names
+    finally:
+        _shutdown(ex)
+
+
+def test_cache_survives_a_failing_disk(tmp_path, capsys):
+    """
+    A filesystem that refuses the write must not take the run down: the
+    in-memory copy still answers lookups, and the file is rebuilt on the way out.
+    """
+    import sqlite3
+
+    class RefusesWrites:
+        """sqlite3.Connection attributes are read-only, so wrap it instead."""
+
+        def __init__(self, conn):
+            self._conn = conn
+
+        def executemany(self, *a, **kw):
+            raise sqlite3.OperationalError("database is locked")
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    ex = _base_executor(tmp_path)
+    try:
+        real = ex._disk_db
+        ex._disk_db = RefusesWrites(real)
+        ex.mark_stage_in_db("wf1_0_0", status=0)
+
+        # the run carries on with a correct cache
+        assert ex.stage_in_db("wf1_0_0", require_success=True) is True
+        assert ex._disk_dirty is True
+        assert "will rebuild the file at shutdown" in capsys.readouterr().out
+
+        ex._disk_db = real
+    finally:
+        _shutdown(ex)
+
+    # the shutdown path repaired the disk copy
+    stages, _ = _read_disk_cache(ex._db_file)
+    assert stages == {"wf1_0_0": 0}
+
+
+def test_no_wholesale_backup_when_disk_kept_up(tmp_path):
+    """
+    With write-through working the disk copy is already complete, so the
+    shutdown path must not re-copy the whole table for nothing.
+    """
+    ex = _base_executor(tmp_path)
+    calls = []
+    ex.backup_db = lambda *a, **kw: calls.append(1)
+    try:
+        ex.mark_stage_in_db("wf2_0_0", status=0)
+        assert ex._disk_dirty is False
+    finally:
+        _shutdown(ex)
+    assert calls == []

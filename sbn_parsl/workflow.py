@@ -831,6 +831,52 @@ class Workflow:
         return self._stage._workflow_last_file
 
 
+# Cache-database statements. Shared by the in-memory copy that the submit loop
+# reads and the on-disk copy that survives the run, so that the two can never
+# drift apart through a typo in one of them.
+_STAGE_UPSERT = "INSERT OR REPLACE INTO stages (stage_id, status) VALUES (?, ?)"
+_WORKFLOW_UPSERT = "INSERT OR REPLACE INTO workflows (id) VALUES (?)"
+
+_CACHE_SCHEMA = (
+    """
+    CREATE TABLE IF NOT EXISTS stages (
+        stage_id TEXT PRIMARY KEY,
+        status UNSIGNED INT
+    )
+    """,
+    # this tracks fully completed workflows where all tasks were successful. If
+    # the workflow's ID is in this database, we can skip running it completely
+    """
+    CREATE TABLE IF NOT EXISTS workflows (
+        id UNSIGNED INT PRIMARY KEY
+    )
+    """,
+)
+
+# Pragmas for the on-disk copy only. The cache lives on Lustre, where sqlite's
+# per-transaction fcntl locking is the part that misbehaves
+# (https://github.com/CGATOxford/CGATPipelines/issues/39). Since stage results
+# are now written through on every flush rather than copied wholesale every few
+# minutes, that locking traffic goes from rare to constant, so it is worth
+# taking the file lock exactly once:
+#   locking_mode=EXCLUSIVE  acquire the lock on first write and hold it for the
+#                           life of the connection. Safe because one driver
+#                           process owns a given output dir, and nothing else
+#                           in the tree opens file_cache_*.db -- but it does
+#                           mean the file cannot be read from another process
+#                           while a run is live.
+#   journal_mode=PERSIST    stop deleting and recreating the journal file on
+#                           every transaction, which is pure metadata cost.
+#   synchronous=NORMAL      no fsync per commit. The in-memory copy is the
+#                           authority during a run and is flushed wholesale on
+#                           exit, so a torn tail only costs re-running stages.
+_DISK_PRAGMAS = (
+    "PRAGMA locking_mode = EXCLUSIVE",
+    "PRAGMA journal_mode = PERSIST",
+    "PRAGMA synchronous = NORMAL",
+)
+
+
 class WorkflowExecutor:
     """
     Class to wrap settings and run multiple workflow objects.
@@ -946,10 +992,21 @@ class WorkflowExecutor:
         )
         self._db_worker_stop = threading.Event()
         self._db_event_queue = queue.Queue()
+        # _db_lock guards _mem_db, _disk_lock guards _disk_db. Anything that
+        # needs both takes _db_lock first (see backup_db); nothing takes them in
+        # the other order, so they cannot deadlock. Keeping them separate is the
+        # point of the design: the submit loop's stage_in_db() reads contend
+        # only on _db_lock, which is never held across filesystem IO.
         self._db_lock = threading.Lock()
+        self._disk_lock = threading.Lock()
+        # set when a write-through fails, so the wholesale backup on exit knows
+        # it has to rebuild the disk copy rather than merely confirm it
+        self._disk_dirty = False
 
         self._db_batch_max_size = 5000
         self._db_batch_max_wait = 5.0
+        # only a retry backoff for a disk copy that failed to keep up; there is
+        # no longer a periodic wholesale backup to schedule
         self._db_backup_interval = 300.0
         # thread is started below, once the connections it writes through exist
 
@@ -969,24 +1026,23 @@ class WorkflowExecutor:
 
         self._disk_db = sqlite3.connect(str(self._db_file), check_same_thread=False)
         self._mem_db = sqlite3.connect(":memory:", check_same_thread=False)
+        # load any previous run's cache into memory, which is what the submit
+        # loop reads from for the rest of the run
         self._disk_db.backup(self._mem_db)
-        self._cursor = self._mem_db.cursor()
 
-        self._cursor.execute("""
-            CREATE TABLE IF NOT EXISTS stages (
-                stage_id TEXT PRIMARY KEY,
-                status UNSIGNED INT
-            )
-        """)
+        for pragma in _DISK_PRAGMAS:
+            self._disk_db.execute(pragma)
 
-        # this tracks fully completed workflows where all tasks were
-        # successful. If the workflow's ID is in this database, we can skip
-        # running it completely
-        self._cursor.execute("""
-            CREATE TABLE IF NOT EXISTS workflows (
-                id UNSIGNED INT PRIMARY KEY
-            )
-        """)
+        # Both copies get the schema. The disk file needs it explicitly: on a
+        # fresh output dir it is an empty database, and the backup() above
+        # copies disk -> mem, so nothing has created its tables. Stage results
+        # are now written straight through to it, which cannot wait for a
+        # wholesale backup to bring the schema along.
+        for statement in _CACHE_SCHEMA:
+            self._mem_db.execute(statement)
+            self._disk_db.execute(statement)
+        self._mem_db.commit()
+        self._disk_db.commit()
 
         # Only now is it safe to run the writer: _backup_db_loop reaches for
         # _mem_db and _disk_db, and previously it was started before either
@@ -1136,16 +1192,13 @@ class WorkflowExecutor:
         pending_workflow_ids = []
 
         last_flush_time = time.time()
-        last_backup_time = [time.time()]
 
         def _flush_db_batches():
             """Perform batched DB writes for pending events."""
             nonlocal pending_stage_updates
             nonlocal pending_workflow_ids
-            if pending_stage_updates:
-                self.mark_stages_in_db(pending_stage_updates)
-            if pending_workflow_ids:
-                self.mark_workflows_in_db(pending_workflow_ids)
+            # one _apply call, so both tables land in a single disk transaction
+            self._apply(pending_stage_updates, pending_workflow_ids)
             pending_stage_updates.clear()
             pending_workflow_ids.clear()
 
@@ -1180,28 +1233,38 @@ class WorkflowExecutor:
                 print(f"Writing {len(pending_stage_updates)} stage(s) to database")
                 _flush_db_batches()
                 last_flush_time = now
-
-                self._maybe_backup_db(
-                    force=False, last_backup_time_ref=last_backup_time
-                )
                 print("Done writing to database")
 
         # Final flush of any remaining batched updates
         _flush_db_batches()
-        # Final sync to disk
-        self.backup_db()
+        # Every flush already wrote through to disk, so the disk copy is
+        # normally complete and a wholesale backup here would re-copy the whole
+        # table for nothing. Only rebuild it if a write-through failed at some
+        # point. Submission has stopped by now, so holding _db_lock across the
+        # copy costs nobody anything.
+        if self._disk_dirty:
+            self.backup_db()
 
         self._mem_db.close()
         self._disk_db.close()
 
     def backup_db(self, nretries: int = 5):
-        """Sync the in-memory database with the disk one.
+        """
+        Copy the in-memory database over the disk one, wholesale.
+
+        This is O(table), so it is a repair and shutdown path only -- stage
+        results reach disk through _apply() as they are flushed. Takes both
+        locks, because it reads _mem_db and writes _disk_db, and is only ever
+        called when submission is not running and so cannot be stalled by it.
+
         Sometimes fails on lustre similar to this: https://github.com/CGATOxford/CGATPipelines/issues/39
         """
         nretries = max(0, nretries)
         for i in range(nretries):
             try:
-                self._mem_db.backup(self._disk_db)
+                with self._db_lock, self._disk_lock:
+                    self._mem_db.backup(self._disk_db)
+                self._disk_dirty = False
                 return
             except sqlite3.OperationalError as e:
                 if i < nretries - 1:
@@ -1210,21 +1273,79 @@ class WorkflowExecutor:
                     continue
                 raise e
 
-    def _maybe_backup_db(self, force: bool, last_backup_time_ref):
-        """Call backup_db every _db_backup_interval seconds or if forced.
-
-        last_backup_time_ref: single-element list [last_backup_time] so we can update it.
+    def _apply(self, stages=(), workflow_ids=()):
         """
-        now = time.time()
-        last_backup_time = last_backup_time_ref[0]
-        if force or (now - last_backup_time) >= self._db_backup_interval:
-            self.backup_db()
-            last_backup_time_ref[0] = now
+        Record stage statuses and completed workflow IDs in both copies.
+
+        The in-memory copy goes first and under _db_lock, because that is what
+        the submit loop reads to decide whether to skip a stage: it matters more
+        that it is current than that it is durable. The disk copy then happens
+        outside _db_lock, so a slow filesystem delays only this writer thread
+        and never a stage_in_db() lookup on the submit path.
+
+        Releasing _db_lock before writing to disk is what keeps that guarantee
+        unconditional, and it assumes a single writer: _backup_db_loop's thread
+        is the only caller during a run. Two threads applying the same stage_id
+        concurrently could interleave such that the copies land in opposite
+        orders and disagree about its status, which on a later restart would
+        mean trusting the wrong one. If a second writer is ever added, order
+        them against each other -- do not move the disk write back under
+        _db_lock, which would put filesystem IO on the submit path again.
+        """
+        if not stages and not workflow_ids:
+            return
+
+        workflow_rows = [(id_,) for id_ in workflow_ids]
+
+        with self._db_lock:
+            if stages:
+                self._mem_db.executemany(_STAGE_UPSERT, stages)
+            if workflow_rows:
+                self._mem_db.executemany(_WORKFLOW_UPSERT, workflow_rows)
+            self._mem_db.commit()
+
+        self._write_through(stages, workflow_rows)
+
+    def _write_through(self, stages, workflow_rows, nretries: int = 3):
+        """
+        Push one batch of changes to the disk copy.
+
+        Costs O(batch) rather than the O(table) of a wholesale backup, which is
+        what makes it affordable to run on every flush instead of every few
+        minutes. The statements are upserts, so re-applying a batch after a
+        partial failure is harmless.
+
+        A filesystem that will not take the write must not take the run down
+        with it, so persistent failure only sets _disk_dirty, which makes the
+        shutdown path rebuild the file from the in-memory copy instead.
+        """
+        nretries = max(1, nretries)
+        for i in range(nretries):
+            try:
+                with self._disk_lock:
+                    if stages:
+                        self._disk_db.executemany(_STAGE_UPSERT, stages)
+                    if workflow_rows:
+                        self._disk_db.executemany(_WORKFLOW_UPSERT, workflow_rows)
+                    self._disk_db.commit()
+                return
+            except sqlite3.OperationalError as e:
+                if i < nretries - 1:
+                    print(f"Failed to write cache to disk! Retrying... ({i})")
+                    time.sleep(1)
+                    continue
+                # the in-memory copy already has these rows, so the run can
+                # carry on with a correct cache; only persistence is behind
+                print(
+                    f"Could not write cache to disk ({e}); will rebuild the "
+                    "file at shutdown. The run is unaffected."
+                )
+                self._disk_dirty = True
 
     def stage_in_db(self, stage_id: str, require_success: bool = False) -> bool:
         """Checks the sqlite database to see if a stage has been previously completed."""
         with self._db_lock:
-            result = self._cursor.execute(
+            result = self._mem_db.execute(
                 "SELECT status FROM stages WHERE stage_id=(?)", (stage_id,)
             ).fetchone()
 
@@ -1238,7 +1359,7 @@ class WorkflowExecutor:
     def workflow_in_db(self, id_) -> bool:
         """Checks the sqlite database to see if a workflow has been previously completed."""
         with self._db_lock:
-            result = self._cursor.execute(
+            result = self._mem_db.execute(
                 "SELECT 1 FROM workflows WHERE id=(?)", (id_,)
             ).fetchone()
         return result is not None
@@ -1249,15 +1370,7 @@ class WorkflowExecutor:
 
     def mark_stages_in_db(self, stages):
         """Batch insert or update stage statuses in the database."""
-        if not stages:
-            return
-
-        with self._db_lock:
-            self._cursor.executemany(
-                "INSERT OR REPLACE INTO stages (stage_id, status) VALUES (?, ?)",
-                stages,
-            )
-            self._mem_db.commit()
+        self._apply(stages=stages)
 
     def mark_workflow_in_db(self, id_):
         """Mark a workflow as fully completed in the database."""
@@ -1265,15 +1378,7 @@ class WorkflowExecutor:
 
     def mark_workflows_in_db(self, ids):
         """Batch insert completed workflow IDs into the database."""
-        if not ids:
-            return
-        rows = [(id_,) for id_ in ids]
-        with self._db_lock:
-            self._cursor.executemany(
-                "INSERT OR REPLACE INTO workflows (id) VALUES (?)",
-                rows,
-            )
-            self._mem_db.commit()
+        self._apply(workflow_ids=ids)
 
 
 class LArSoftExecutor(WorkflowExecutor):
