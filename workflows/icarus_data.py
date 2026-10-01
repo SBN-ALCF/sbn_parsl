@@ -22,6 +22,9 @@ from sbn_parsl.app import entry_point
 from sbn_parsl.config import Config
 
 
+POT = StageType("pot")
+
+
 class DecoderExecutor(LArSoftExecutor):
     """Execute a decoder workflow from user settings."""
 
@@ -29,7 +32,11 @@ class DecoderExecutor(LArSoftExecutor):
         super().__init__(cfg)
 
         self.meta = MetadataGenerator(cfg, self.fcls, defer_check=True)
-        self.stage_order = [StageType.from_str(key) for key in self.fcls.keys()]
+        self.stage_order = [
+            POT,
+            DefaultStageTypes.STAGE1,
+            DefaultStageTypes.CAF
+        ]
         self.files_per_subrun = cfg.run.files_per_subrun
         self.run_list = None
 
