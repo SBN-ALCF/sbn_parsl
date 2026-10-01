@@ -16,7 +16,7 @@ pbs_filesystems = "home:flare"
 # keeps every slot fed with ~20% spare. Each workflow in flight also costs about
 # 16 KiB of driver memory (~3.8 GiB at this setting), which is the reason not to
 # set it far higher than the slot count.
-max_futures = 250000
+max_futures = 300000
 worker_init = [
     "export TMPDIR=/tmp/",
 ]
