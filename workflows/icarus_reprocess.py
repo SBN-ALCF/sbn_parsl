@@ -16,7 +16,7 @@ from sbn_parsl.workflow import (
     DefaultStageTypes,
 )
 from sbn_parsl.metadata import MetadataGenerator
-from sbn_parsl.components import RunContext, larsoft_runfunc, build_larsoft_cmd, output_filepath_generic
+from sbn_parsl.components import RunContext, larsoft_runfunc, build_larsoft_cmd, output_filepath_generic, regular_caf_path
 from sbn_parsl.experiments.icarus import overlay_runfunc_icarus, build_modify_fcl_cmd_icarus
 from sbn_parsl.templates import CMD_TEMPLATE_CONTAINER
 from sbn_parsl.app import entry_point
@@ -33,10 +33,11 @@ def build_larsoft_cmd_caf(context: RunContext, sbnnusyst_env: str, sbnnusyst_fcl
 
     lar_cmd = build_larsoft_cmd(context)
 
+    # reweight the regular CAF that CAFMaker just wrote, replacing its flat CAF
     nusyst_cmd = '\n'.join([
         f'source {sbnnusyst_env}',
-        f'echo "caf" > list.tmp',
-        f'UpdateReweight -c {sbnnusyst_fcl} -i list.tmp -o {context.output_file.name}',
+        f'echo "{regular_caf_path(context.output_file)}" > list.tmp',
+        f'UpdateReweight -c {sbnnusyst_fcl} -i list.tmp -o {context.output_file}',
     ])
     return f'{lar_cmd}\n{nusyst_cmd}'
 

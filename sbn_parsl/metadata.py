@@ -33,7 +33,6 @@ class MetadataGenerator:
         "mdruntype": "physics",
         "mdgroupname": "sbnd",
         "tfilemdjsonname": "",
-        "cafname": "caf",
     }
 
     def __init__(
@@ -107,6 +106,14 @@ class MetadataGenerator:
                 if hasattr(md_obj, "mdprojectversion"):
                     config_settings["mdprojectversion"] = getattr(md_obj, "mdprojectversion")
 
+        # Output filenames are set by fcl injection (components.py), not by
+        # the metadata injector, so it must not be handed one to override
+        if config_settings.pop("cafname", None) is not None:
+            print(
+                "WARNING: metadata 'cafname' is ignored; CAF filenames are now "
+                "set by sbn_parsl (caf/ and flatcaf/ under the output directory)."
+            )
+
         # Resolve exe
         exe = config_settings.pop("exe", POMS_EXE)
         if exe is None:
@@ -165,9 +172,6 @@ class MetadataGenerator:
         this_metadata["inputfclname"] = self.fclnames[stagename]
         this_metadata["mdfclname"] = self.fclnames[stagename]
         this_metadata["mdprojectstage"] = stagename
-        if stagename != "caf":
-            if "cafname" in this_metadata:
-                del this_metadata["cafname"]
 
         return this_metadata
 

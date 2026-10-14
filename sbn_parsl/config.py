@@ -94,6 +94,7 @@ class MetadataConfig:
     mdruntype: Optional[str] = None
     mdgroupname: Optional[str] = None
     tfilemdjsonname: Optional[str] = None
+    # deprecated: accepted so old settings still load; ignored with a warning
     cafname: Optional[str] = None
 
 

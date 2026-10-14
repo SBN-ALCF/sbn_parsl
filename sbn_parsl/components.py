@@ -78,17 +78,29 @@ class RunContext:
     meta: MetadataGenerator = None
 
 
-def _get_output_dir(context: RunContext, use_label: bool = True) -> pathlib.Path:
+# Unblinded CAF stages write two files: the flat CAF (the stage's tracked
+# output) under FLATCAF_DIR and the regular CAF under CAF_DIR, side by side
+# in otherwise identical directory trees.
+CAF_DIR = "caf"
+FLATCAF_DIR = "flatcaf"
+CAF_SUFFIX = ".caf.root"
+FLATCAF_SUFFIX = ".flat.caf.root"
+
+
+def _get_output_dir(
+    context: RunContext, use_label: bool = True, stage_dir: Optional[str] = None
+) -> pathlib.Path:
     """
     Generates a structured output directory path.
 
-    The path follows the pattern: [label/]<stage_name>/<workflow_batch>/<workflow_id>
+    The path follows the pattern: [label/]<stage_dir>/<workflow_batch>/<workflow_id>,
+    where stage_dir defaults to the stage name.
     Batches are grouped by 1000s and 100s to avoid directory scaling issues.
     """
     parts = []
     if use_label and context.label:
         parts.append(context.label)
-    parts.append(context.stage.stage_type.name)
+    parts.append(stage_dir or context.stage.stage_type.name)
     parts.append(f"{context.stage.workflow_id // 1000:06d}")
     parts.append(f"{context.stage.workflow_id // 100:06d}")
     return context.out_dir.joinpath(*parts)
@@ -108,8 +120,16 @@ def output_filepath_generic(
     for uniqueness), and standard derivative stages (chaining filenames).
     """
     if context.stage.stage_type == DefaultStageTypes.CAF:
-        caf_suffix = ".Blind.OKTOLOOK.flat.caf.root" if blind_caf else ".flat.caf.root"
-        output_filename = os.path.splitext(context.input_files[0].name)[0] + caf_suffix
+        stem = os.path.splitext(context.input_files[0].name)[0]
+        if blind_caf:
+            # CAFMaker names the blinded files itself, in its cwd; the
+            # template sweeps them all into the CAF_DIR tree
+            return _get_output_dir(context, use_label) / (
+                stem + ".Blind.OKTOLOOK" + FLATCAF_SUFFIX
+            )
+        return _get_output_dir(context, use_label, stage_dir=FLATCAF_DIR) / (
+            stem + FLATCAF_SUFFIX
+        )
     elif is_mc and context.stage.is_first():
         _label = context.label + "-" if context.label else ""
         output_filename = "".join(
@@ -132,6 +152,42 @@ def output_filepath_generic(
 
 
 output_filepath = functools.partial(output_filepath_generic, is_mc=True, use_label=True)
+
+
+def regular_caf_path(flat_caf: pathlib.PurePath) -> pathlib.PurePosixPath:
+    """The regular CAF written alongside an unblinded flat CAF."""
+    parent = pathlib.PurePosixPath(
+        *[p if p != FLATCAF_DIR else CAF_DIR for p in flat_caf.parent.parts]
+    )
+    return parent / (flat_caf.name[: -len(FLATCAF_SUFFIX)] + CAF_SUFFIX)
+
+
+def build_caf_filename_cmd(context: RunContext) -> str:
+    """
+    Point CAFMaker's two outputs at their final paths.
+
+    Without this, CAFMaker derives both names from its first input and writes
+    them to its cwd. Only applies to the unblinded layout: with blinding,
+    CAFMaker strips the directory from explicit names when deriving the
+    Blind/Prescale files, so it is left to name everything itself.
+    """
+    flat = pathlib.PurePosixPath(context.output_file)
+    if (
+        context.stage.stage_type != DefaultStageTypes.CAF
+        or FLATCAF_DIR not in flat.parent.parts
+    ):
+        return ""
+
+    caf = regular_caf_path(flat)
+    fcl_name = context.fcl.name
+    return "\n".join(
+        [
+            f"mkdir -p {caf.parent}",
+            f"mkdir -p {flat.parent}",
+            f'''echo "physics.producers.cafmaker.CAFFilename: \\"{caf}\\"" >> {fcl_name}''',
+            f'''echo "physics.producers.cafmaker.FlatCAFFilename: \\"{flat}\\"" >> {fcl_name}''',
+        ]
+    )
 
 
 def build_larsoft_cmd(
@@ -371,8 +427,11 @@ def larsoft_runfunc(
             dummy_input += context.stage.dependency.output_files[0]
     input_arg = [str(fcl)] + dummy_input + input_files + depends
 
-    # metadata & fcl manipulation
+    # fcl manipulation first, then metadata injection
     mg_cmd = fcl_cmd_func(context)
+    caf_cmd = build_caf_filename_cmd(context)
+    if caf_cmd:
+        mg_cmd += "\n" + caf_cmd
     if meta is not None:
         mg_cmd += "\n" + meta.run_cmd(
             context.output_file.name + ".json",
