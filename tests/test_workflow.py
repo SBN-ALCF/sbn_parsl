@@ -1,7 +1,11 @@
+import pathlib
 import pytest
 
 from sbn_parsl.workflow import Workflow, Stage, StageType, DefaultStageTypes, run_stage
-from sbn_parsl.workflow import NoStageOrderException, NoFclFileException
+from sbn_parsl.workflow import NoStageOrderException, NoFclFileException, NoRunDirException
+
+# absolute but never touched: default_runfunc only logs paths
+RUN_DIR = pathlib.PurePosixPath("/sbn_parsl_test/run")
 
 
 def test_stage_init():
@@ -13,6 +17,7 @@ def test_stage_init():
 def test_stage_add_parent_no_order():
     # raises: can't add a parent if stage order is not specified
     s1 = Stage(DefaultStageTypes.G4, fcl="g4.fcl")
+    s1.run_dir = RUN_DIR
     s2 = Stage(DefaultStageTypes.GEN, fcl="gen.fcl")
     s1.add_parents(s2)
 
@@ -22,7 +27,7 @@ def test_stage_add_parent_no_order():
 
 def test_stage_add_parent_last_stage():
     stage_order = [DefaultStageTypes.GEN, DefaultStageTypes.G4]
-    workflow = Workflow(stage_order)
+    workflow = Workflow(stage_order, run_dir=RUN_DIR)
 
     s1 = Stage(DefaultStageTypes.G4, fcl="g4.fcl")
     workflow.add_final_stage(s1)
@@ -41,7 +46,7 @@ def test_stage_add_parent_not_last_stage():
         DefaultStageTypes.G4,
         DefaultStageTypes.DETSIM,
     ]
-    workflow = Workflow(stage_order)
+    workflow = Workflow(stage_order, run_dir=RUN_DIR)
 
     s1 = Stage(DefaultStageTypes.DETSIM, fcl="detsim.fcl")
     workflow.add_final_stage(s1)
@@ -63,6 +68,7 @@ def test_stage_add_parent_not_last_stage2():
         DefaultStageTypes.DETSIM,
     ]
     s1 = Stage(DefaultStageTypes.DETSIM, stage_order=stage_order, fcl="detsim.fcl")
+    s1.run_dir = RUN_DIR
     s2 = Stage(DefaultStageTypes.G4, fcl="g4.fcl")
     fcls = {
         DefaultStageTypes.GEN: "gen.fcl",
@@ -100,7 +106,7 @@ def test_run_stage():
         DefaultStageTypes.G4: "g4.fcl",
         DefaultStageTypes.DETSIM: "detsim.fcl",
     }
-    workflow = Workflow(stage_order, default_fcls=fcls)
+    workflow = Workflow(stage_order, default_fcls=fcls, run_dir=RUN_DIR)
     s1 = Stage(DefaultStageTypes.DETSIM)
     workflow.add_final_stage(s1)
     workflow._finalize()
@@ -122,7 +128,7 @@ def test_combine():
         DefaultStageTypes.G4: "g4.fcl",
         DefaultStageTypes.DETSIM: "detsim.fcl",
     }
-    workflow = Workflow(stage_order, fcls)
+    workflow = Workflow(stage_order, fcls, run_dir=RUN_DIR)
 
     s1 = Stage(DefaultStageTypes.DETSIM)
     workflow.add_final_stage(s1)
@@ -155,7 +161,7 @@ def test_combine():
 
 def test_is_first():
     stage_order = [DefaultStageTypes.GEN, DefaultStageTypes.G4]
-    workflow = Workflow(stage_order)
+    workflow = Workflow(stage_order, run_dir=RUN_DIR)
 
     s1 = Stage(DefaultStageTypes.G4, fcl="g4.fcl")
     workflow.add_final_stage(s1)
@@ -199,7 +205,7 @@ def _futures_per_advance(combined):
         return StageResult(outputs=[out])
 
     workflow = Workflow(
-        order, {k: f"{k.name}.fcl" for k in order}, runfunc=runfunc
+        order, {k: f"{k.name}.fcl" for k in order}, runfunc=runfunc, run_dir=RUN_DIR
     )
     caf = Stage(DefaultStageTypes.CAF, fcl="caf.fcl")
     caf.runfunc = runfunc
@@ -271,3 +277,48 @@ def test_no_advance_is_wasted(combined):
     assert 0 not in per_advance[:-1], (
         f"combine={combined} wasted an advance: {per_advance}"
     )
+
+
+def _caf_workflow(workflow_run_dir=None, caf_run_dir=None, gen_run_dir=None):
+    stage_order = [DefaultStageTypes.GEN, DefaultStageTypes.CAF]
+    workflow = Workflow(stage_order, run_dir=workflow_run_dir)
+    caf = Stage(DefaultStageTypes.CAF, fcl="caf.fcl")
+    gen = Stage(DefaultStageTypes.GEN, fcl="gen.fcl")
+    workflow.add_final_stage(caf)
+    caf.add_parents(gen)
+    # set after add_final_stage, as the workflow scripts do
+    caf.run_dir = caf_run_dir
+    gen.run_dir = gen_run_dir
+    return workflow, caf, gen
+
+
+def test_unset_run_dir_raises():
+    """No run_dir anywhere used to fall back to '.', the worker's cwd."""
+    workflow, _, _ = _caf_workflow()
+    with pytest.raises(NoRunDirException, match="caf has no run_dir"):
+        workflow._finalize()
+
+
+def test_relative_run_dir_raises():
+    workflow, _, _ = _caf_workflow(caf_run_dir=pathlib.PurePosixPath("caf/run"))
+    with pytest.raises(NoRunDirException, match="relative run_dir"):
+        workflow._finalize()
+
+
+def test_relative_parent_run_dir_raises():
+    workflow, _, _ = _caf_workflow(caf_run_dir=RUN_DIR, gen_run_dir="gen")
+    with pytest.raises(NoRunDirException, match="Stage gen"):
+        workflow._finalize()
+
+
+def test_parents_inherit_final_stage_run_dir():
+    workflow, caf, gen = _caf_workflow(caf_run_dir=RUN_DIR / "caf")
+    workflow._finalize()
+    assert gen.run_dir == RUN_DIR / "caf"
+
+
+def test_workflow_run_dir_is_inherited():
+    workflow, caf, gen = _caf_workflow(workflow_run_dir=RUN_DIR)
+    workflow._finalize()
+    assert caf.run_dir == RUN_DIR
+    assert gen.run_dir == RUN_DIR

@@ -95,6 +95,12 @@ class WorkflowException(Exception):
     pass
 
 
+class NoRunDirException(Exception):
+    """Raised when a stage has no run directory, or one that is not absolute."""
+
+    pass
+
+
 class StageAncestorException(Exception):
     """Raised when there is an error in the stage ancestry graph (e.g., invalid parent type)."""
 
@@ -536,6 +542,24 @@ class Stage:
                     "Tried to run a stage with no fcl file. Either set the stage's fcl file first, or provide it via Workflow default_fcls."
                 )
 
+        # Runfuncs cd into run_dir and write logs relative to it, so a missing
+        # or relative one resolves against the worker's cwd (runinfo/cmd). The
+        # super stage never runs anything and is exempt.
+        if StageProperty._SUPER not in self.stage_type.properties:
+            where = f"Stage {self.stage_type.name}"
+            if self.workflow_id is not None:
+                where += f" (workflow {self.workflow_id})"
+            if self.run_dir is None:
+                raise NoRunDirException(
+                    f"{where} has no run_dir. Set run_dir on the final stage, e.g. "
+                    "s.run_dir = self.get_caf_dir(iteration), or pass run_dir to Workflow()."
+                )
+            if not pathlib.PurePosixPath(str(self.run_dir)).is_absolute():
+                raise NoRunDirException(
+                    f"{where} has relative run_dir {str(self.run_dir)!r}; "
+                    "run_dir must be absolute."
+                )
+
         for s in self._temp_parent_stages:
             self._add_parents(s)
             s._finalize(self._fcls)
@@ -728,7 +752,7 @@ class Workflow:
         self,
         stage_order: List[StageType],
         default_fcls: Optional[Dict] = None,
-        run_dir: pathlib.Path = pathlib.Path(),
+        run_dir: Optional[pathlib.Path] = None,
         runfunc: Optional[Callable] = None,
     ):
         """
@@ -737,7 +761,8 @@ class Workflow:
         Args:
             stage_order: List of StageTypes defining the valid ancestry path.
             default_fcls: Mapping of StageType to default FHiCL files.
-            run_dir: Directory where tasks will execute.
+            run_dir: Default directory where tasks will execute. Must be
+                absolute; if None, every final stage must set its own.
             runfunc: Default execution function for all stages in the workflow.
         """
 

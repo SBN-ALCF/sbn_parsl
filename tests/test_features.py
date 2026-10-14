@@ -5,6 +5,9 @@ from sbn_parsl.metadata import MetadataGenerator
 from sbn_parsl.config import Config, LArSoftConfig, MetadataConfig, SiteConfig
 from sbn_parsl.components import larsoft_runfunc
 
+# absolute but never touched: default_runfunc only logs paths
+RUN_DIR = pathlib.PurePosixPath("/sbn_parsl_test/run")
+
 
 def test_workflow_cycle_mode():
     """Test that 'cycle' mode yields tasks from different branches in round-robin."""
@@ -20,7 +23,7 @@ def test_workflow_cycle_mode():
     s2_gen = Stage(DefaultStageTypes.GEN, fcl="gen_2.fcl")
     s2.add_parents(s2_gen)
 
-    wf = Workflow(stage_order)
+    wf = Workflow(stage_order, run_dir=RUN_DIR)
     wf.add_final_stage(s1)
     wf.add_final_stage(s2)
     wf._finalize()
@@ -176,7 +179,7 @@ def _fanin_workflow(n_branches, submit_mode=None):
         g4.add_parents(gen)
         caf.add_parents(g4)
 
-    wf = Workflow(stage_order)
+    wf = Workflow(stage_order, run_dir=RUN_DIR)
     wf.add_final_stage(caf)
     if submit_mode is not None:
         wf.submit_mode = submit_mode
@@ -219,7 +222,7 @@ def test_submit_mode_propagates_to_ancestors():
     gen = Stage(DefaultStageTypes.GEN, fcl="gen.fcl")
     g4.add_parents(gen)
 
-    wf = Workflow(stage_order)
+    wf = Workflow(stage_order, run_dir=RUN_DIR)
     wf.add_final_stage(g4)
     wf.submit_mode = "depth"
     wf._finalize()

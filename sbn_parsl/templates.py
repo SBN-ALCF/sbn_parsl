@@ -326,7 +326,15 @@ cp *.json $(dirname {{output}}) && rm -f *.json || true
 
 # special tmp area mirroring workdir structure
 # e.g. /tmp/workdir/larcv gets copied to /output/larcv
-cp -a /tmp/{{workdir}}/. {{rootdir}}/ && rm -rf /tmp/{{workdir}} || true
+# only for an absolute workdir whose mirror exists: a relative or empty one
+# would make this copy, then delete, all of /tmp
+case "{{workdir}}" in
+    /?*)
+        if [ -d "/tmp/{{workdir}}" ]; then
+            cp -a "/tmp/{{workdir}}/." "{{rootdir}}/" && rm -rf "/tmp/{{workdir}}" || true
+        fi
+        ;;
+esac
 
 {{post_job_hook}}
 {JOB_POST}
