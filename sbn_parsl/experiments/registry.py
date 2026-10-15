@@ -41,11 +41,13 @@ def validate_fcl_modifier(func: Callable):
     (context: RunContext) -> str
     """
     sig = inspect.signature(func)
-    params = list(sig.parameters.values())
-    if len(params) != 1:
+    # called as func(context); further options (e.g. save_larcv) must have
+    # defaults so they can be bound with functools.partial
+    required = [p for p in sig.parameters.values() if p.default is inspect.Parameter.empty]
+    if len(required) != 1:
         raise RegistryError(
-            f"FCL modifier '{func.__name__}' must take exactly 1 argument (context). "
-            f"Got: {list(sig.parameters.keys())}"
+            f"FCL modifier '{func.__name__}' must take exactly 1 required argument "
+            f"(context); any others need defaults. Got: {list(sig.parameters.keys())}"
         )
 
 

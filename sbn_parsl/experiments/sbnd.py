@@ -1,4 +1,3 @@
-import pathlib
 import functools
 from sbn_parsl.workflow import DefaultStageTypes
 from sbn_parsl.components import (
@@ -8,25 +7,31 @@ from sbn_parsl.components import (
     output_filepath,
     output_filepath_generic,
     RunContext,
+    sibling_output_dir,
+    local_buffer_path,
+    local_discard_path,
 )
 from sbn_parsl.experiments.registry import sbnd_registry
 
 
 @sbnd_registry.register_fcl_modifier("mc")
-def build_modify_fcl_cmd_sbnd_mc(context: RunContext) -> str:
-    """Normal MC fcl command + superaMC renaming"""
+def build_modify_fcl_cmd_sbnd_mc(context: RunContext, save_larcv: bool = True) -> str:
+    """Normal MC fcl command + supera output naming"""
     fcl_cmd = build_modify_fcl_cmd(context)
     fcl_name = context.fcl.name
     if context.stage.stage_type == DefaultStageTypes.RECO1:
-        # find the first component in the output file path with "reco1" & replace with "larcv"
-        larcv_dir = pathlib.PurePosixPath(
-            *[p if p != "reco1" else "larcv" for p in context.output_file.parent.parts]
-        )
-        larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
+        # written to the node-local buffer, then copied to <out>/larcv/...
+        larcv_name = f"larcv_{context.output_file.name}"
+        if save_larcv:
+            larcv_filename = local_buffer_path(
+                context, sibling_output_dir(context, "larcv") / larcv_name
+            )
+        else:
+            larcv_filename = local_discard_path(larcv_name)
 
         fcl_cmd = "\n".join(
             [
-                f"mkdir -p {str(larcv_dir)}",
+                f"mkdir -p {larcv_filename.parent}",
                 fcl_cmd,
                 f'''echo "physics.analyzers.supera.out_filename: \\"{str(larcv_filename)}\\"" >> {fcl_name}''',
                 f"""echo "physics.analyzers.supera.unique_filename: false" >> {fcl_name}""",

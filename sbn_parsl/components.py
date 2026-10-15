@@ -154,6 +154,41 @@ def output_filepath_generic(
 output_filepath = functools.partial(output_filepath_generic, is_mc=True, use_label=True)
 
 
+# Per-task node-local buffer created by the templates (LOCAL_BUFFER_INIT). The
+# variable is expanded by the task's host shell, including inside the
+# container heredoc, so these paths can go straight into commands and fcls.
+LOCAL_BUFFER = pathlib.PurePosixPath("$SBN_LOCAL_BUFFER")
+
+
+def sibling_output_dir(context: RunContext, dirname: str) -> pathlib.PurePosixPath:
+    """
+    The final directory, under the run's output directory, that sits alongside
+    this stage's own output directory but named dirname instead of the stage.
+
+    E.g. <out>/reco1/000000/000000 -> <out>/larcv/000000/000000. Uses where the
+    output belongs, not where it is written: a combined stage writes its output
+    to /tmp, but its side outputs still belong under the output directory.
+    """
+    out_root = pathlib.PurePosixPath(context.cfg.run.output)
+    rel = pathlib.PurePosixPath(str(context.output_file)).parent.relative_to(
+        str(context.out_dir)
+    )
+    stage_name = context.stage.stage_type.name
+    return out_root.joinpath(*[p if p != stage_name else dirname for p in rel.parts])
+
+
+def local_buffer_path(context: RunContext, final_path: pathlib.PurePath) -> pathlib.PurePosixPath:
+    """Where to write final_path (under the output directory) so it is copied
+    there when the task succeeds."""
+    rel = pathlib.PurePosixPath(str(final_path)).relative_to(context.cfg.run.output)
+    return LOCAL_BUFFER / "keep" / rel
+
+
+def local_discard_path(filename: str) -> pathlib.PurePosixPath:
+    """Where to send an output that must be written but not kept."""
+    return LOCAL_BUFFER / "discard" / filename
+
+
 def regular_caf_path(flat_caf: pathlib.PurePath) -> pathlib.PurePosixPath:
     """The regular CAF written alongside an unblinded flat CAF."""
     parent = pathlib.PurePosixPath(
@@ -194,6 +229,7 @@ def build_larsoft_cmd(
     context: RunContext,
     decode_stream: str = "",
     calib_ntuple_stage: Optional[StageType] = None,
+    save_calib_ntuple: bool = True,
 ) -> str:
     """
     Constructs the standard 'lar' command line execution string.
@@ -228,15 +264,17 @@ def build_larsoft_cmd(
     calib_str = ""
     mkdir_cmd = ""
     if calib_ntuple_stage and context.stage.stage_type == calib_ntuple_stage:
-        calib_dir = pathlib.PurePosixPath(
-            *[
-                p if p != context.stage.stage_type.name else "calib_ntuple"
-                for p in context.output_file.parent.parts
-            ]
-        )
-        calib_filename = calib_dir / f"hists_{context.input_files[0].name}"
-        calib_str = f" -T {str(calib_filename)}"
-        mkdir_cmd = f"mkdir -p {str(calib_dir)}\n"
+        # -T is always given: without it the fcl's TFileService file would
+        # land in the run dir and be swept into the output directory anyway
+        calib_name = f"hists_{context.input_files[0].name}"
+        if save_calib_ntuple:
+            calib_file = local_buffer_path(
+                context, sibling_output_dir(context, "calib_ntuple") / calib_name
+            )
+        else:
+            calib_file = local_discard_path(calib_name)
+        calib_str = f" -T {calib_file}"
+        mkdir_cmd = f"mkdir -p {calib_file.parent}\n"
 
     cmd = f"lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}{calib_str} --tmpdir=/tmp"
     return mkdir_cmd + cmd

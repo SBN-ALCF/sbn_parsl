@@ -1,5 +1,3 @@
-import os
-import pathlib
 import functools
 from sbn_parsl.workflow import DefaultStageTypes
 from sbn_parsl.components import (
@@ -7,12 +5,15 @@ from sbn_parsl.components import (
     build_larsoft_cmd,
     output_filepath_generic,
     RunContext,
+    sibling_output_dir,
+    local_buffer_path,
+    local_discard_path,
 )
 from sbn_parsl.experiments.registry import icarus_registry
 
 
 # @icarus_registry.register_fcl_modifier("mc")
-def build_modify_fcl_cmd_icarus(context: RunContext, is_mc: bool=False):
+def build_modify_fcl_cmd_icarus(context: RunContext, is_mc: bool=False, save_larcv: bool=True):
     """generate bash commands that modify fcl"""
     fcl_cmd = ""
     fcl_name = context.fcl.name
@@ -37,18 +38,16 @@ def build_modify_fcl_cmd_icarus(context: RunContext, is_mc: bool=False):
             f'''echo "physics.producers.bnbinfo.URL: \\"http://localhost:8000/ifbeam\\"" >> {fcl_name}''',
         ])
     elif context.stage.stage_type == DefaultStageTypes.STAGE1:
-        # find the first component in the output file path with "reco1" & replace with "larcv"
-        larcv_dir = pathlib.PurePosixPath(
-            *[p if p != "stage1" else "larcv" for p in context.output_file.parent.parts]
-        )
+        # written to the node-local buffer, then copied to <out>/larcv/...
+        larcv_name = f"larcv_{context.output_file.name}"
+        if save_larcv:
+            larcv_filename = local_buffer_path(
+                context, sibling_output_dir(context, "larcv") / larcv_name
+            )
+        else:
+            larcv_filename = local_discard_path(larcv_name)
 
-        # now build a path on tmp with output structure that the template can copy out later
-        common = os.path.commonpath([context.output_file.parent, larcv_dir])
-
-        larcv_dir = '/tmp' / context.stage.run_dir.relative_to('/') / os.path.relpath(larcv_dir, common)
-        larcv_filename = larcv_dir / f"larcv_{context.output_file.name}"
-
-        larcv_dir_str = str(larcv_dir)
+        larcv_dir_str = str(larcv_filename.parent)
 
         supera_module_name = 'supera'
         if is_mc:

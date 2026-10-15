@@ -43,6 +43,24 @@ if [ $host == "aurora" ]; then
 fi
 """
 
+# Node-local buffer for outputs written in many small pieces (calibration
+# ntuples, larcv), which hang up Lustre. Paths come from
+# components.local_buffer_path / local_discard_path: keep/ mirrors the output
+# directory and is copied there only if the task succeeds; discard/ is never
+# copied. The trap removes the buffer however the task ends.
+LOCAL_BUFFER_INIT = r"""
+export SBN_LOCAL_BUFFER=$(mktemp -d /tmp/sbn_local_buffer.XXXXXX)
+trap 'rm -rf "$SBN_LOCAL_BUFFER"' EXIT
+"""
+
+# Not guarded with || true: if the copy fails, so does the task, and parsl
+# retries it rather than recording outputs that never arrived.
+LOCAL_BUFFER_SAVE = r"""
+if [ "${{exit_code:-0}}" -eq 0 ] && [ -d "$SBN_LOCAL_BUFFER/keep" ]; then
+    cp -a "$SBN_LOCAL_BUFFER/keep/." "{rootdir}/"
+fi
+"""
+
 PROXY = r"""
 export http_proxy="http://proxy.alcf.anl.gov:3128"
 export https_proxy="http://proxy.alcf.anl.gov:3128"
@@ -174,6 +192,7 @@ mv *.h5 $(dirname {{output}}) || true
 CMD_TEMPLATE_SPACK = rf"""
 {JOB_PRE}
 cd {{workdir}}
+{LOCAL_BUFFER_INIT}
 echo "Current directory: "
 pwd
 echo "Current files: "
@@ -219,7 +238,7 @@ mv  *hist*root "$(dirname {{output}})/hists_$(basename {{output}})" || true
 
 echo "mv *.root $(dirname {{output}}) || true"
 mv *.root $(dirname {{output}}) || true
-
+{LOCAL_BUFFER_SAVE}
 {{post_job_hook}}
 {JOB_POST}
 """
@@ -228,6 +247,7 @@ mv *.root $(dirname {{output}}) || true
 CMD_TEMPLATE_CONTAINER = rf"""
 {JOB_PRE}
 cd {{workdir}}
+{LOCAL_BUFFER_INIT}
 echo "Current directory: "
 pwd
 echo "Current files: "
@@ -324,17 +344,7 @@ cp *.root $(dirname {{output}}) && rm -f *.root || true
 echo "cp *.json $(dirname {{output}}) || true"
 cp *.json $(dirname {{output}}) && rm -f *.json || true
 
-# special tmp area mirroring workdir structure
-# e.g. /tmp/workdir/larcv gets copied to /output/larcv
-# only for an absolute workdir whose mirror exists: a relative or empty one
-# would make this copy, then delete, all of /tmp
-case "{{workdir}}" in
-    /?*)
-        if [ -d "/tmp/{{workdir}}" ]; then
-            cp -a "/tmp/{{workdir}}/." "{{rootdir}}/" && rm -rf "/tmp/{{workdir}}" || true
-        fi
-        ;;
-esac
+{LOCAL_BUFFER_SAVE}
 
 {{post_job_hook}}
 {JOB_POST}
