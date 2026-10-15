@@ -30,6 +30,7 @@ def test_lar_cmd_gen():
     s._is_finalized = True  # Bypass ancestry check
 
     cfg = get_mock_cfg()
+    cfg.run.output = "/out"
     lar_args = LArSoftConfig(experiment="sbnd", version="v1", qual="e26:prof", nevts=1)
 
     rc = RunContext(
@@ -37,12 +38,14 @@ def test_lar_cmd_gen():
         cfg=cfg,
         fcl=pathlib.Path("gen.fcl"),
         input_files=[pathlib.Path("input.root")],
-        output_file=pathlib.Path("output.root"),
+        out_dir=pathlib.Path("/out"),
+        output_file=pathlib.Path("/out/gen/output.root"),
         lar_args=lar_args,
     )
-    assert (
-        build_larsoft_cmd(rc)
-        == "lar -c gen.fcl -s input.root --output=output.root --nevts=1 --tmpdir=/tmp"
+    assert build_larsoft_cmd(rc) == (
+        "mkdir -p $SBN_LOCAL_BUFFER/keep/gen\n"
+        "lar -c gen.fcl -s input.root --output=/out/gen/output.root --nevts=1"
+        " -T $SBN_LOCAL_BUFFER/keep/gen/hists_output.root --tmpdir=/tmp"
     )
 
 

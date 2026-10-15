@@ -177,6 +177,11 @@ def sibling_output_dir(context: RunContext, dirname: str) -> pathlib.PurePosixPa
     return out_root.joinpath(*[p if p != stage_name else dirname for p in rel.parts])
 
 
+def final_output_dir(context: RunContext) -> pathlib.PurePosixPath:
+    """This stage's own output directory under the run's output directory."""
+    return sibling_output_dir(context, context.stage.stage_type.name)
+
+
 def local_buffer_path(context: RunContext, final_path: pathlib.PurePath) -> pathlib.PurePosixPath:
     """Where to write final_path (under the output directory) so it is copied
     there when the task succeeds."""
@@ -230,12 +235,14 @@ def build_larsoft_cmd(
     decode_stream: str = "",
     calib_ntuple_stage: Optional[StageType] = None,
     save_calib_ntuple: bool = True,
+    save_hists: bool = True,
 ) -> str:
     """
     Constructs the standard 'lar' command line execution string.
 
     Handles input/output flags, event counts (nevts), skip offsets (nskip),
-    and optional calibration ntuple redirection (-T).
+    and the TFileService file (-T): the calibration ntuple on calib_ntuple_stage,
+    a histogram file on every other stage.
     """
     output_file_arg_str = ""
     if context.stage.stage_type != DefaultStageTypes.CAF:
@@ -261,22 +268,28 @@ def build_larsoft_cmd(
     if context.lar_args.nskip > 0:
         nskip = f" --nskip={context.lar_args.nskip}"
 
-    calib_str = ""
-    mkdir_cmd = ""
+    # -T is always given: otherwise the fcl's TFileService file lands in the
+    # run dir, which every stage of a combined task shares, and the template's
+    # end-of-task sweep moves it into the final stage's output directory
     if calib_ntuple_stage and context.stage.stage_type == calib_ntuple_stage:
-        # -T is always given: without it the fcl's TFileService file would
-        # land in the run dir and be swept into the output directory anyway
-        calib_name = f"hists_{context.input_files[0].name}"
+        tfile_name = f"hists_{context.input_files[0].name}"
         if save_calib_ntuple:
-            calib_file = local_buffer_path(
-                context, sibling_output_dir(context, "calib_ntuple") / calib_name
+            tfile = local_buffer_path(
+                context, sibling_output_dir(context, "calib_ntuple") / tfile_name
             )
         else:
-            calib_file = local_discard_path(calib_name)
-        calib_str = f" -T {calib_file}"
-        mkdir_cmd = f"mkdir -p {calib_file.parent}\n"
+            tfile = local_discard_path(tfile_name)
+    else:
+        # a combined stage's output is scratch, so are its histograms
+        tfile_name = f"hists_{context.output_file.name}"
+        if save_hists and not context.stage.combine:
+            tfile = local_buffer_path(context, final_output_dir(context) / tfile_name)
+        else:
+            tfile = local_discard_path(tfile_name)
+    tfile_str = f" -T {tfile}"
+    mkdir_cmd = f"mkdir -p {tfile.parent}\n"
 
-    cmd = f"lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}{calib_str} --tmpdir=/tmp"
+    cmd = f"lar -c {context.fcl} {input_file_arg_str} {output_file_arg_str}{nevts}{nskip}{tfile_str} --tmpdir=/tmp"
     return mkdir_cmd + cmd
 
 
@@ -470,9 +483,14 @@ def larsoft_runfunc(
     caf_cmd = build_caf_filename_cmd(context)
     if caf_cmd:
         mg_cmd += "\n" + caf_cmd
-    if meta is not None:
-        mg_cmd += "\n" + meta.run_cmd(
-            context.output_file.name + ".json",
+    # a combined stage's output is deleted once its child has read it, so
+    # there is nothing to describe
+    if meta is not None and not self.combine:
+        json_file = local_buffer_path(
+            context, final_output_dir(context) / (context.output_file.name + ".json")
+        )
+        mg_cmd += f"\nmkdir -p {json_file.parent}\n" + meta.run_cmd(
+            str(json_file),
             os.path.basename(fcl),
             check_exists=False,
         )
