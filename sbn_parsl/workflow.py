@@ -76,6 +76,12 @@ TASK_ORDERS = ("depth", "workflow")
 # completion first. A stage-depth *priority* therefore wants "cycle" submission.
 TASK_ORDER_SUBMIT_MODES = {"depth": "cycle", "workflow": "depth"}
 
+# Priority gap between consecutive submission batches under "depth" with a
+# cycle count (see WorkflowExecutor.task_priority). Must exceed the longest
+# stage_id any workflow can produce, so that the stage-depth term can never
+# reach across into a neighbouring batch.
+_BATCH_PRIORITY_STRIDE = 1000
+
 
 class NoInputFileException(Exception):
     """Raised when a stage requires an input file but none was provided."""
@@ -935,6 +941,10 @@ class WorkflowExecutor:
             )
         self._submit_mode = TASK_ORDER_SUBMIT_MODES[self.task_order]
 
+        # Workflows per submission batch, set by execute() from its cycle count.
+        # 0 means no batching: every workflow is one batch.
+        self._cycle = 0
+
         self.max_futures = cfg.site.max_futures
         self._future_limit = True
         if self.max_futures < 0:
@@ -1190,6 +1200,8 @@ class WorkflowExecutor:
 
         HTEX dispatches the lowest priority value first, breaking ties by
         submission order (see parsl interchange.process_task_incoming).
+        Priority only orders tasks the interchange holds, i.e. ones whose
+        dependencies are already met; parsl keeps the rest back in the DFK.
         """
         if self.task_order == "workflow":
             # every task in workflow N outranks every task in workflow N+1
@@ -1197,7 +1209,25 @@ class WorkflowExecutor:
 
         # stage_id gains one element per step back up the ancestry, so the
         # deepest ancestors -- the dependency-free first stages -- sort first
-        return -len(stage.stage_id)
+        depth = len(stage.stage_id)
+        if self._cycle <= 0:
+            return -depth
+
+        # With a cycle count, workflows are submitted in batches of _cycle, and
+        # each batch must outrank every later one. Submission order alone is
+        # not enough: once batch k is fully submitted its later stages are
+        # still waiting on their parents, and by the time they become runnable
+        # batch k+1's first stages are already queued in the interchange. A
+        # global -depth would let those jump ahead, so that every batch's first
+        # stage still runs before any batch's last stage -- the very thing
+        # batching is meant to prevent. Sort by batch, then by depth within it.
+        if depth >= _BATCH_PRIORITY_STRIDE:
+            raise ValueError(
+                f"stage_id of length {depth} does not fit in the batch "
+                f"priority stride ({_BATCH_PRIORITY_STRIDE})"
+            )
+        batch = stage.workflow_id // self._cycle
+        return batch * _BATCH_PRIORITY_STRIDE - depth
 
     # ------------------------------------------------------------------
     # Cache persistence. Lives here rather than on a subclass because this
@@ -1474,11 +1504,18 @@ class LArSoftExecutor(WorkflowExecutor):
         # with a batch size = to the number of workers. This ensures the workers
         # always have tasks to start but also don't have to wait for all subruns
         # to complete their first stage before moving onto their later stages
+        #
+        # The window only orders *submission*. To make the workers honour it,
+        # task_priority also ranks each batch above the next (see there), so
+        # the batch index it computes must match the window: workflow idx is in
+        # window idx // nworkers, which retire() below guarantees.
         if nworkers > 0:
             nworkers = min(nworkers, nsubruns)
             idx_cycle = itertools.cycle(range(nworkers))
+            self._cycle = nworkers
         else:
             nworkers = nsubruns
+            self._cycle = 0
 
         last_files = [None] * nworkers
 

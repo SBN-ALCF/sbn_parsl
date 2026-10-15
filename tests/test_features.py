@@ -248,6 +248,7 @@ def _executor_with_task_order(task_order):
     ex = WorkflowExecutor.__new__(WorkflowExecutor)
     ex.cfg = cfg
     ex.task_order = task_order
+    ex._cycle = 0
     return ex
 
 
@@ -272,6 +273,35 @@ def test_task_priority_workflow_orders_by_workflow():
     wf1_gen = MagicMock(workflow_id=1, stage_id=(0, 0, 0))
     assert ex.task_priority(wf0_caf) < ex.task_priority(wf1_gen)
     assert TASK_ORDER_SUBMIT_MODES["workflow"] == "depth"
+
+
+def test_task_priority_depth_with_cycle_orders_by_batch_then_stage():
+    """
+    With a cycle count, all of batch k outranks batch k+1, and first stages
+    still lead within a batch. Without the batch term, batch 1's gen would sort
+    ahead of batch 0's caf and the batching would be undone at dispatch.
+    """
+    ex = _executor_with_task_order("depth")
+    ex._cycle = 4
+    b0_gen = MagicMock(workflow_id=0, stage_id=(0, 0, 0))
+    b0_caf = MagicMock(workflow_id=3, stage_id=(0,))
+    b1_gen = MagicMock(workflow_id=4, stage_id=(0, 0, 0))
+    b1_caf = MagicMock(workflow_id=7, stage_id=(0,))
+    assert ex.task_priority(b0_gen) < ex.task_priority(b0_caf)
+    assert ex.task_priority(b0_caf) < ex.task_priority(b1_gen)
+    assert ex.task_priority(b1_gen) < ex.task_priority(b1_caf)
+
+    # same stage depth in the same batch ties, leaving submission order
+    assert ex.task_priority(MagicMock(workflow_id=1, stage_id=(0, 0))) == (
+        ex.task_priority(MagicMock(workflow_id=2, stage_id=(0, 1)))
+    )
+
+
+def test_task_priority_depth_without_cycle_ignores_workflow():
+    ex = _executor_with_task_order("depth")
+    gen_late = MagicMock(workflow_id=1000, stage_id=(0, 0, 0))
+    caf_early = MagicMock(workflow_id=0, stage_id=(0,))
+    assert ex.task_priority(gen_late) < ex.task_priority(caf_early)
 
 
 def test_task_order_validated():
@@ -312,6 +342,7 @@ def _priority_of(task_order, stage_id, workflow_id):
     executor.futures = set()
     # use the real ordering logic, not the mock's
     executor.task_order = task_order
+    executor._cycle = 0
     executor.task_priority = MagicMock(
         side_effect=lambda s: WorkflowExecutor.task_priority(executor, s)
     )
@@ -468,13 +499,17 @@ def test_output_check_ignored_in_dry_run(tmp_path):
     assert is_file.call_count == 0, "dry-run guard must short-circuit before the stat"
 
 
-def _run_execute(nsubruns, nworkers, cached=(), advances_per_wf=3):
+def _run_execute(nsubruns, nworkers, cached=(), advances_per_wf=3, priorities=None):
     """
     Drive the real LArSoftExecutor.execute() over stub workflows.
 
     Returns the order of workflow indices that were advanced. Raises if the loop
     fails to terminate, which is the failure mode when the batch window cannot
     roll past a fully cached batch.
+
+    If priorities is a list, each advance appends (idx, task_priority) for a
+    stand-in stage whose stage_id shrinks with every advance, as a real
+    workflow's does from its first stage to its last.
     """
     import threading
     import types
@@ -503,6 +538,8 @@ def _run_execute(nsubruns, nworkers, cached=(), advances_per_wf=3):
     ex._mark_launched = lambda: None
     ex._monitor_stop = threading.Event()
     ex.workflow_in_db = lambda idx: idx in cached
+    ex.task_order = "depth"
+    ex._cycle = 0
 
     advanced = []
 
@@ -512,6 +549,9 @@ def _run_execute(nsubruns, nworkers, cached=(), advances_per_wf=3):
         def get_next_task():
             if left[0] <= 0:
                 return
+            if priorities is not None:
+                stage = types.SimpleNamespace(workflow_id=idx, stage_id=(0,) * left[0])
+                priorities.append((idx, ex.task_priority(stage)))
             left[0] -= 1
             advanced.append(idx)
             yield
@@ -585,6 +625,35 @@ def test_execute_single_workflow_batch_with_cache():
 def test_execute_scattered_cache():
     advanced = _run_execute(12, 4, cached={0, 5, 11})
     assert sorted(set(advanced)) == [1, 2, 3, 4, 6, 7, 8, 9, 10]
+
+
+def test_execute_cycle_priority_matches_submission_window():
+    """
+    task_priority's batch must be the submission window a workflow was drawn
+    from, including after the window rolls past cached workflows. Then every
+    task of an earlier window outranks every task of a later one.
+    """
+    priorities = []
+    _run_execute(12, 4, cached={0, 5, 11}, priorities=priorities)
+    by_batch = {}
+    for idx, prio in priorities:
+        by_batch.setdefault(idx // 4, []).append(prio)
+    assert sorted(by_batch) == [0, 1, 2]
+    for k in (0, 1):
+        assert max(by_batch[k]) < min(by_batch[k + 1])
+
+    # within a workflow, earlier stages sort first
+    wf1 = [prio for idx, prio in priorities if idx == 1]
+    assert wf1 == sorted(wf1)
+
+
+def test_execute_without_cycle_leaves_depth_priority_global():
+    priorities = []
+    _run_execute(8, -1, priorities=priorities)
+    # first stage of the last workflow still outranks last stage of the first
+    first_of_last = [p for i, p in priorities if i == 7][0]
+    last_of_first = [p for i, p in priorities if i == 0][-1]
+    assert first_of_last < last_of_first
 
 
 def _progress_executor(max_futures, slots, submitted, runnable, workers=None):

@@ -52,7 +52,13 @@ def parse_arguments(argv):
         default=False,
     )
     parser.add_argument(
-        "-c", "--cycle", type=int, help="Cycle workflow submission count"
+        "-c",
+        "--cycle",
+        type=int,
+        help="Submit workflows in batches of this many (typically the worker "
+        "count). With --task-order depth, first stages still run first within "
+        "a batch, but every task of a batch outranks the next batch, so later "
+        "stages are not starved as the number of subruns grows",
     )
     parser.add_argument(
         "--task-order",
