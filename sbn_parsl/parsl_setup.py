@@ -221,7 +221,7 @@ def create_executor_by_hostname(cfg: Config, provider):
                 f"cp {pkg_path} /tmp && tar -xf {tarball_path} -C {dest_path} && rm -f {tarball_path}"
             )
 
-    launch_cmds = []
+    launch_cmds = ["python3 /lus/flare/projects/neutrinoGPU/larsoft_hpc/ifbeam_mirror/server.py --db /lus/flare/projects/neutrinoGPU/larsoft_hpc/ifbeam_mirror/ifbeam.db &\n"]
     if init_cmds:
         launch_cmds.append("\n".join(init_cmds))
     launch_cmds.append(DEFAULT_LAUNCH_CMD)

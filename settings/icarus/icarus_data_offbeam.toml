@@ -1,0 +1,44 @@
+[run]
+nsubruns = 1
+files_per_subrun = 1
+
+[workflow]
+stage0_path = "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_offbeambnbmajority-B/reco1/"
+file_map = "/lus/flare/projects/neutrinoGPU/twester/icarus_run4_offbeambnbmajority-B/reco1/stage0_map_sort.txt"
+
+[app.larsoft]
+software = "icaruscode"
+version = "v10_06_00_14p01"
+qual = "e26:prof"
+nevts = -1
+experiment = "icarus"
+lar_args = ""
+env_file = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/icaruscode-v10_06_00_14p01.env"
+overlays = [
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/larsoft-v10_06_00.squashfs",
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/icarus-v10_06_00_14p01_delta.squashfs"
+]
+
+
+[app.larsoft.tarballs]
+icaruscode = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/icaruscode-10.06.00.14p01-slf7-x86_64-e26-prof.tar.bz2"
+icarus_data = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/icarus_data-10.06.06-noarch.tar.bz2"
+
+
+[job]
+queue = "gpu_hack_sm"
+walltime = "1:00:00"
+nodes_per_block = 1
+allocation = "gpu_hack"
+retries = 0
+initialize_logging = false
+
+[workflow.fcls]
+pot = "run_icarusbnbextinfo_sbn.fcl"
+stage1 = "stage1_run2_larcv_icarus.fcl"
+caf = "cafmakerjob_icarus_data.fcl"
+
+
+
+[app.larsoft.metadata]
+mdprojectversion = "v10_06_00_14p01"

@@ -126,7 +126,7 @@ class OverlayExecutor(LArSoftExecutor):
         s = Stage(DefaultStageTypes.CAF)
         s.run_dir = self.get_run_dir(iteration)
         s.runfunc = self._caf_runfunc
-        workflow.add_final_stage(s)
+        # workflow.add_final_stage(s)
 
         for file in rawdata_files:
             # for run4, dirt
@@ -139,6 +139,9 @@ class OverlayExecutor(LArSoftExecutor):
                 # file_itr = pathlib.PurePath(str(file).replace('mix-000', f'mix-{i:03d}'))
                 file_itr = pathlib.PurePath(str(file).replace('overlay-000-', f'overlay-{i:03d}-'))
                 s_stage1.add_input_file(file_itr)
+
+                # when running with no caf
+                workflow.add_final_stage(s_stage1)
             '''
             # for run 2
             s_stage1 = Stage(DefaultStageTypes.STAGE1)

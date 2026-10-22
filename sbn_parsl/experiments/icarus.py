@@ -58,6 +58,9 @@ def build_modify_fcl_cmd_icarus(context: RunContext, is_mc: bool=False, save_lar
                 fcl_cmd,
                 f"""echo "physics.analyzers.{supera_module_name}.out_filename: \\"{larcv_dir_str}/{larcv_filename.name}\\"" >> {fcl_name}""",
                 f"""echo "physics.analyzers.{supera_module_name}.unique_filename: false" >> {fcl_name}""",
+                f"""echo "outputs.out1.outputCommands: [ @sequence::outputs.out1.outputCommands," >> {fcl_name}""",
+                f"""echo "\\"drop recob::SpacePoints_cluster3DCryo*_*_*\\"," >> {fcl_name}""",
+                f"""echo "\\"drop recob::Hitrecob::SpacePointvoidart::Assns_cluster3DCryo*_*_*\\" ]" >> {fcl_name}"""
             ]
         )
 
