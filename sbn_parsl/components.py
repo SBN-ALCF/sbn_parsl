@@ -235,7 +235,7 @@ def build_larsoft_cmd(
     decode_stream: str = "",
     calib_ntuple_stage: Optional[StageType] = None,
     save_calib_ntuple: bool = True,
-    save_hists: bool = True,
+    save_hists: bool = False,
 ) -> str:
     """
     Constructs the standard 'lar' command line execution string.
