@@ -1,21 +1,23 @@
 [run]
 nsubruns = 1
+# files_per_subrun = 1
 
 [workflow]
-subruns_per_caf = 20
+subruns_per_caf = 1
 full_keep_fraction = 0.05
+# file_path = "/lus/flare/projects/neutrinoGPU/twester/scratch/sbnd_gen2_full/g4"
 
 [app.larsoft]
 software = "sbndcode"
 version = "v10_14_02_05"
 qual = "e26:prof"
-nevts = 10
+nevts = 15
 experiment = "sbnd"
 lar_args = ""
-env_file = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/sbndcode-v10_14_02_05.env"
+env_file = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/sbndcode-v10_14_02_08.env"
 overlays = [
 	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/larsoft-v10_14_02.squashfs",
-	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/sbnd-v10_14_02_05_delta.squashfs"
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/sbnd-v10_14_02_08_delta.squashfs"
 ]
 
 [app.larsoft.tarballs]
@@ -38,4 +40,4 @@ reco2 = "standard_reco2_sbnd.fcl"
 caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt_and_g4rw.fcl"
 
 [app.larsoft.metadata]
-mdprojectversion = "v10_06_00_04"
+mdprojectversion = "v10_14_02_05"

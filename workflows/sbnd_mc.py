@@ -4,6 +4,8 @@
 
 import sys
 import functools
+import pathlib
+import itertools
 
 from sbn_parsl.workflow import (
     StageType,
@@ -30,10 +32,14 @@ class CAFFromGenExecutor(LArSoftExecutor):
         if cfg.larsoft.metadata.exe:
             self.meta = MetadataGenerator(cfg, self.fcls, defer_check=True)
 
+        wf_dict = cfg.workflow.extra
+        # self.file_path = pathlib.Path(wf_dict.get("file_path", "."))
+
         self.stage_order = [StageType.from_str(key) for key in self.fcls.keys()]
         self.subruns_per_caf = cfg.workflow.subruns_per_caf
         self.runfunc = functools.partial(
             mc_runfunc_sbnd,
+            label='Gen2-2',
             executor=self,
             template=CMD_TEMPLATE_CONTAINER,
             meta=self.meta,
@@ -43,13 +49,16 @@ class CAFFromGenExecutor(LArSoftExecutor):
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
         s = Stage(DefaultStageTypes.CAF)
         s.runfunc = self.runfunc
-        workflow.add_final_stage(s)
         s.run_dir = self.get_caf_dir(iteration)
+        workflow.add_final_stage(s)
 
         for i in range(self.subruns_per_caf):
             inst = iteration * self.subruns_per_caf + i
 
             s_reco2 = Stage(DefaultStageTypes.RECO2)
+            s_reco2.runfunc = self.runfunc
+            s_reco2.run_dir = self.get_run_dir(inst)
+
             s_reco1 = Stage(DefaultStageTypes.RECO1)
             s_detsim = Stage(DefaultStageTypes.DETSIM)
             s_g4 = Stage(DefaultStageTypes.G4)
@@ -61,8 +70,11 @@ class CAFFromGenExecutor(LArSoftExecutor):
             s_detsim.add_parents(s_g4)
             s_g4.add_parents(s_gen)
 
-            s_gen.combine = True
-            # s_reco2.combine = True
+            # s_gen.combine = True
+            s_g4.combine = True
+            s_detsim.combine = True
+            # s_reco1.combine = True
+            s_reco2.combine = True
 
             # each workflow will have its own directory
             s_reco2.run_dir = self.get_run_dir(inst)
