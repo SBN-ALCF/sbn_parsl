@@ -89,11 +89,18 @@ def main():
     todo = [("dir", r) for r in reversed(args.roots)]
     max_in_flight = max(4 * args.threads, 1)
     t0 = last_report = time.monotonic()
+    last_files = 0
 
     def report(final=False):
-        el = time.monotonic() - t0
-        print(f"\r{n_dirs} dirs, {files_read} files ({files_read / max(el, 1e-9):.0f}/s), "
-              f"{total_events} events, {len(todo)} queued, {el:.0f}s",
+        # "now" is the rate since the previous report; "avg" is since start
+        nonlocal last_files, last_report
+        t = time.monotonic()
+        el = t - t0
+        now_rate = (files_read - last_files) / max(t - last_report, 1e-9)
+        last_files, last_report = files_read, t
+        print(f"\r{n_dirs} dirs, {files_read} files "
+              f"({now_rate:.0f}/s now, {files_read / max(el, 1e-9):.0f}/s avg), "
+              f"{total_events} events, {len(todo)} queued, {len(pending)} in flight, {el:.0f}s ",
               end="\n" if final else "", file=sys.stderr, flush=True)
 
     with ThreadPoolExecutor(max_workers=args.threads) as pool:
@@ -132,9 +139,7 @@ def main():
                         if st[2] == 0:
                             print(f"{path}\t{st[0]}\t{st[1]}")
                             del per_dir[path]
-            now = time.monotonic()
-            if not args.quiet and now - last_report >= 2.0:
-                last_report = now
+            if not args.quiet and time.monotonic() - last_report >= 2.0:
                 report()
 
     if not args.quiet:
