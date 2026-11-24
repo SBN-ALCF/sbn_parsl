@@ -1,0 +1,47 @@
+[run]
+nsubruns = 12288
+
+[workflow]
+streams = ["eta", "nuecc", "kaon", "ncdeltarad", "ccdeltarad"]
+files_per_filter = 100
+
+[app.larsoft]
+software = "sbndcode"
+version = "v10_14_02_05"
+qual = "e26:prof"
+nevts = 125
+experiment = "sbnd"
+lar_args = ""
+first_run = 400
+env_file = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/envs/sbndcode-v10_14_02_05.env"
+overlays = [
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/larsoft-v10_14_02.squashfs",
+	"/lus/flare/projects/neutrinoGPU/larsoft_hpc/images/sbnd-v10_14_02_05_delta.squashfs"
+]
+
+[app.larsoft.tarballs]
+sbndcode = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/sbndcode-10.14.02.05-slf7-x86_64-e26-prof.tar.bz2"
+sbnd_data = "/lus/flare/projects/neutrinoGPU/scisoft/tarballs/sbnd_data-01.42.00-noarch.tar.bz2"
+
+[job]
+queue = "prod"
+walltime = "02:00:00"
+nodes_per_block = 4096
+allocation = "gpu_hack"
+retries = 0
+strategy = "none"
+initialize_logging = false
+
+# order matters: the workflow's stage order is read from these keys
+[workflow.fcls]
+gen = "prodgenie_corsika_proton_rockbox0p1_sbnd.fcl"
+filter = "run_sbnd_gen2_rare_signal_filter.fcl"
+g4 = "standard_g4_rockbox_sbnd.fcl"
+detsim = "standard_detsim_sbnd.fcl"
+reco1 = "standard_reco1_sbnd.fcl"
+reco2 = "standard_reco2_sbnd.fcl"
+caf = "cafmakerjob_sbnd_sce_systtools_and_fluxwgt_and_g4rw.fcl"
+
+[app.larsoft.metadata]
+exe = "/lus/flare/projects/neutrinoGPU/larsoft_hpc/tools/sbndpoms_metadata_injector.sh"
+mdprojectversion = "v10_14_02_05"

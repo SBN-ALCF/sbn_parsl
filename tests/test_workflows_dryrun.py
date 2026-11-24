@@ -9,6 +9,7 @@ WORKFLOW_TEST_MAP = {
     "sbnd_data.py": "settings/sbnd/sbnd_data.toml",
     "sbnd_mc_detsys_vars.py": "settings/sbnd/settings_caf_detsys_vars.toml",
     "sbnd_mc_dentvar.py": "settings/sbnd/sbnd_mc_dentvar.toml",
+    "sbnd_filter_gen.py": "settings/sbnd/sbnd_filter_gen.toml",
     "icarus_mc.py": "settings/icarus/settings_mc_icarus_container.toml",
     "icarus_data.py": "settings/icarus/settings_data_icarus_container.toml",
 }
