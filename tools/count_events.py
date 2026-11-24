@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sum "event_count" over every *.root.json metadata file under a directory tree.
+"""Sum "event_count" and "mc.pot" over every *.root.json metadata file under a directory tree.
 
 Usage:
     count_events.py ROOT_DIR [ROOT_DIR ...] [-j THREADS] [--suffix .root.json] [--per-dir]
@@ -19,6 +19,9 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 EVENT_RE = re.compile(rb'"event_count"\s*:\s*"?(\d+)')
+# Bare or quoted number, incl. scientific notation. A missing mc.pot is not
+# a problem (e.g. data files); it is just counted separately.
+POT_RE = re.compile(rb'"mc\.pot"\s*:\s*"?([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)')
 CHUNK = 64          # files per read task
 MAX_BAD_KEPT = 20   # problem files remembered for printing; the rest are counted
 
@@ -43,21 +46,27 @@ def list_dir(path, suffix):
 
 
 def read_files(paths):
-    """Return (events, bad) for a chunk of JSON files."""
-    events = 0
+    """Return (events, pot, n_with_pot, bad) for a chunk of JSON files."""
+    events = n_pot = 0
+    pot = 0.0
     bad = []
     for p in paths:
         try:
             with open(p, "rb") as f:
-                m = EVENT_RE.search(f.read())
+                data = f.read()
         except OSError as e:
             bad.append((p, str(e)))
             continue
+        m = EVENT_RE.search(data)
         if m:
             events += int(m.group(1))
         else:
             bad.append((p, "no event_count"))
-    return events, bad
+        m = POT_RE.search(data)
+        if m:
+            pot += float(m.group(1))
+            n_pot += 1
+    return events, pot, n_pot, bad
 
 
 def main():
@@ -67,13 +76,14 @@ def main():
                    help="worker threads (default 64; try 128+ on Lustre/DAOS)")
     p.add_argument("--suffix", default=".root.json")
     p.add_argument("--per-dir", action="store_true",
-                   help="print per-directory event counts (tab-separated)")
+                   help="print per-directory counts (tab-separated: dir, files, events, pot)")
     p.add_argument("-q", "--quiet", action="store_true", help="no progress on stderr")
     args = p.parse_args()
 
-    total_events = files_read = n_dirs = n_bad = 0
+    total_events = files_read = n_dirs = n_bad = n_pot_files = 0
+    total_pot = 0.0
     first_bad = []
-    # --per-dir only: dir -> [n_files, events, chunks_outstanding]
+    # --per-dir only: dir -> [n_files, events, pot, chunks_outstanding]
     per_dir = {}
 
     def note_bad(bad):
@@ -100,7 +110,7 @@ def main():
         last_files, last_report = files_read, t
         print(f"\r{n_dirs} dirs, {files_read} files "
               f"({now_rate:.0f}/s now, {files_read / max(el, 1e-9):.0f}/s avg), "
-              f"{total_events} events, {len(todo)} queued, {len(pending)} in flight, {el:.0f}s ",
+              f"{total_events} events, {total_pot:.4g} POT, {len(todo)} queued, {len(pending)} in flight, {el:.0f}s ",
               end="\n" if final else "", file=sys.stderr, flush=True)
 
     with ThreadPoolExecutor(max_workers=args.threads) as pool:
@@ -124,20 +134,23 @@ def main():
                     todo.extend(("dir", d) for d in subdirs)
                     chunks = [files[i:i + CHUNK] for i in range(0, len(files), CHUNK)]
                     if args.per_dir and chunks:
-                        per_dir[path] = [len(files), 0, len(chunks)]
+                        per_dir[path] = [len(files), 0, 0.0, len(chunks)]
                     todo.extend(("files", path, c) for c in chunks)
                 else:
                     path, chunk = item[1], item[2]
-                    events, bad = fut.result()
+                    events, pot, n_pot, bad = fut.result()
                     total_events += events
+                    total_pot += pot
+                    n_pot_files += n_pot
                     files_read += len(chunk)
                     note_bad(bad)
                     if args.per_dir:
                         st = per_dir[path]
                         st[1] += events
-                        st[2] -= 1
-                        if st[2] == 0:
-                            print(f"{path}\t{st[0]}\t{st[1]}")
+                        st[2] += pot
+                        st[3] -= 1
+                        if st[3] == 0:
+                            print(f"{path}\t{st[0]}\t{st[1]}\t{st[2]:.6g}")
                             del per_dir[path]
             if not args.quiet and time.monotonic() - last_report >= 2.0:
                 report()
@@ -153,6 +166,7 @@ def main():
     print(f"json files:   {files_read}")
     print(f"problems:     {n_bad}")
     print(f"total events: {total_events}")
+    print(f"total mc.pot: {total_pot:.6g}  (from {n_pot_files} of {files_read} files)")
 
 
 if __name__ == "__main__":
