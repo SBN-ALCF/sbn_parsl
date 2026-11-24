@@ -27,7 +27,7 @@ class CAFFromGenExecutor(WorkflowExecutor):
                                          template=CMD_TEMPLATE_CONTAINER,
                                          meta=self.meta)
 
-    def _setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
+    def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
         workflow = Workflow(self.stage_order, default_fcls=self.fcls)
         runfunc_ = self.runfunc
         s = Stage(DefaultStageTypes.CAF)
@@ -55,16 +55,6 @@ class CAFFromGenExecutor(WorkflowExecutor):
 
             # each workflow will have its own directory
             s_reco2.run_dir = get_subrun_dir(self.output_dir, inst)
-
-        return workflow
-
-    def setup_single_workflow(self, iteration: int, file_slice=None, last_file=None):
-        workflow = Workflow(self.stage_order, default_fcls=self.fcls)
-        runfunc_ = self.runfunc
-        s = Stage(DefaultStageTypes.GEN)
-        s.runfunc = self.runfunc
-        workflow.add_final_stage(s)
-        s.run_dir = get_subrun_dir(self.output_dir, iteration)
 
         return workflow
 

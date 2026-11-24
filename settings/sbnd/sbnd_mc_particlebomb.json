@@ -1,0 +1,58 @@
+{
+    "run": {
+        "output": "your_output_dir",
+        "fclpath": "",
+        "nsubruns": 1,
+        "max_futures": 20000,
+        "seed": 1234
+    },
+    "workflow": {
+        "subruns_per_caf": 10
+    },
+    "larsoft": {
+        "container": "/tmp/slf7.sif",
+        "software": "sbndcode",
+        "larsoft_top": "/lus/flare/projects/neutrinoGPU/scisoft/larsoft",
+        "version": "v10_14_02_05",
+        "qual": "e26:prof",
+        "nevts": 1,
+        "experiment": "sbnd",
+        "lar_args" : "",
+        "first_run": 0,
+        "env_file": "/lus/eagle/projects/neutrinoGPU/larsoft_hpc/envs/sbndcode-v10_14_02_05.env",
+        "tarballs": {},
+        "overlays":
+        [
+                "/lus/eagle/projects/neutrinoGPU/larsoft_hpc/images/larsoft-v10_14_02.squashfs",
+                "/lus/eagle/projects/neutrinoGPU/larsoft_hpc/images/sbnd-v10_14_02_05_delta.squashfs"
+        ]
+    },
+    "queue": {
+        "queue": "debug",
+        "walltime": "01:00:00",
+        "nodes_per_block": 1,
+        "cores_per_worker": 1,
+        "min_blocks": 1,
+        "max_blocks": 1,
+        "init_blocks": 1,
+        "cpus_per_node": 32,
+        "cores_per_worker": 1,
+        "strategy": "none",
+        "init_cmd": "cp /lus/grand/projects/neutrinoGPU/software/slf7.sif /tmp",
+        "allocation": "neutrinoGPU::debug",
+        "initialize_logging": false,
+        "retries": 0
+    },
+    "fcls": {
+        "gen": "run_mpvmpr_sbnd.fcl",
+        "g4": "standard_g4_sbnd.fcl",
+        "detsim": "standard_detsim_sbnd.fcl",
+        "reco1": "standard_reco1_sbnd.fcl",
+        "reco2": "standard_reco2_sbnd.fcl",
+        "caf": "cafmakerjob_sbnd_sce_systtools_and_fluxwgt.fcl"
+    },
+    "metadata": {
+        "exe": "/lus/grand/projects/neutrinoGPU/software/larsoft/sbndutil/v10_06_01/bin/sbndpoms_metadata_injector.sh",
+        "mdprojectversion": "v10_14_02_05"
+    }
+}
